@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Elizabeth Holding &middot; Prix du marche immobilier francais</title>
+  <meta name="description" content="Etudes de marche immobilier par ville et par quartier : prix a l'achat et a la location pour T1 a T5 dans le neuf, taux de proprietaires et locataires (INSEE)." />
+
+  <!-- Police -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+  <!-- Leaflet (carte) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="nav">
+    <div class="container nav-inner">
+      <a href="index.html" class="brand">
+        <span class="logo">EH</span>
+        <span>Elizabeth Holding<small>Intelligence immobiliere</small></span>
+      </a>
+      <div class="nav-links">
+        <a href="#explorer">Explorer</a>
+        <a href="#methode">Methode</a>
+        <a href="etudes.html" class="cta">Etudes de marche</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="container">
+      <h1>Le prix du marche francais, <span class="grad">quartier par quartier</span>.</h1>
+      <p class="lead">
+        Elizabeth Holding cartographie les prix de l'immobilier neuf en France : a l'achat
+        comme a la location, du T1 au T5, avec la repartition proprietaires / locataires issue
+        des donnees INSEE. Cherchez une ville ou un quartier et comparez en un instant.
+      </p>
+      <div class="hero-cta">
+        <a href="#explorer" class="btn btn-primary">Explorer la carte &rarr;</a>
+        <a href="etudes.html" class="btn btn-ghost">Ajouter une etude de marche</a>
+      </div>
+
+      <div class="hero-stats">
+        <div class="hero-stat">
+          <div class="num" data-count="4" >0</div>
+          <div class="lbl">Villes couvertes</div>
+        </div>
+        <div class="hero-stat">
+          <div class="num" data-count="10">0</div>
+          <div class="lbl">Quartiers analyses</div>
+        </div>
+        <div class="hero-stat">
+          <div class="num" data-count="5" data-suffix=" types">0</div>
+          <div class="lbl">Typologies (T1&rarr;T5)</div>
+        </div>
+        <div class="hero-stat">
+          <div class="num" data-count="2" data-suffix=" marches">0</div>
+          <div class="lbl">Achat &amp; location</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- SEARCH + MAP -->
+  <section class="explore" id="explorer">
+    <div class="container">
+      <div class="search-section">
+        <div class="search-wrap">
+          <div class="search-box">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
+            <input id="search-input" type="text" placeholder="Cherchez une ville ou un quartier (ex. Lyon, Le Marais...)" autocomplete="off" />
+            <button id="search-btn" class="btn btn-primary">Analyser</button>
+          </div>
+          <div class="suggestions" id="suggestions"></div>
+        </div>
+      </div>
+
+      <div class="explore-grid" style="margin-top:24px">
+        <div class="map-card">
+          <div class="map-head">
+            <h3>Carte interactive</h3>
+            <div class="legend">
+              <span><span class="dot ville"></span> Ville</span>
+              <span><span class="dot quartier"></span> Quartier</span>
+            </div>
+          </div>
+          <div id="map"></div>
+        </div>
+
+        <div class="panel" id="panel">
+          <div class="panel-empty">
+            <div class="big">&#128205;</div>
+            <p>Cliquez sur un point de la carte ou cherchez une ville / quartier pour afficher les statistiques.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES / METHODE -->
+  <section class="features" id="methode">
+    <div class="container">
+      <div class="section-title">
+        <div class="kicker">Notre methode</div>
+        <h2>Des donnees de marche, pas des estimations floues</h2>
+        <p>Chaque chiffre provient de nos etudes de marche : releves de prix, sources publiques et donnees INSEE, mis a jour en continu via notre interface dediee.</p>
+      </div>
+      <div class="feat-grid">
+        <div class="feat">
+          <div class="ic">&#127970;</div>
+          <h3>Achat &amp; location, T1 a T5</h3>
+          <p>Prix au m&sup2; dans le neuf pour chaque typologie, a l'achat et au loyer mensuel, par ville et par quartier.</p>
+        </div>
+        <div class="feat">
+          <div class="ic">&#128202;</div>
+          <h3>Comparaison nationale</h3>
+          <p>Chaque prix est positionne par rapport a la moyenne France pour reperer immediatement les marches sur- ou sous-cotes.</p>
+        </div>
+        <div class="feat">
+          <div class="ic">&#128101;</div>
+          <h3>Proprietaires vs locataires</h3>
+          <p>La structure des menages (donnees INSEE) revele le potentiel locatif reel de chaque secteur.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container foot-inner">
+      <div>&copy; <span id="year"></span> Elizabeth Holding &middot; Intelligence immobiliere</div>
+      <div>Donnees de demonstration &middot; a remplacer par vos etudes de marche</div>
+    </div>
+  </footer>
+
+  <!-- Librairies -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+
+  <!-- Donnees + logique -->
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+  <script>document.getElementById("year").textContent = new Date().getFullYear();</script>
+</body>
+</html>
