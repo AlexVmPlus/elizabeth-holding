@@ -35,10 +35,12 @@ export interface GeoInfo {
 export type Transaction = "location" | "vente";
 
 // --- Construit l'URL de recherche SeLoger filtree neuf ----------------------
-export function buildSearchUrl(insee: string, transaction: Transaction, natures: string): string {
+// `ci` = code place SeLoger (6 chiffres, ex Bordeaux 330063), resolu via
+// l'autocomplete SeLoger. Doit etre un NOMBRE dans le parametre places.
+export function buildSearchUrl(ci: string | number, transaction: Transaction, natures: string): string {
   const dist = transaction === "vente" ? "Buy" : "Rent";
   const projects = transaction === "vente" ? "2" : "1";
-  const places = encodeURIComponent(JSON.stringify([{ inseeCodes: [insee] }]));
+  const places = encodeURIComponent(JSON.stringify([{ inseeCodes: [Number(ci)] }]));
   // types=1,2 : appartement + maison ; natures=2 : neuf
   return `https://www.seloger.com/list.htm?projects=${projects}&types=1,2` +
     `&natures=${natures}&places=${places}&distributionTypes=${dist}` +

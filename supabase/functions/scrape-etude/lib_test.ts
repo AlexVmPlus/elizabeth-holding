@@ -13,15 +13,16 @@ Deno.test("typologie T1..T6", () => {
   assertEquals(typologie(null), null);
 });
 
-Deno.test("buildSearchUrl : location -> Rent, neuf", () => {
-  const u = buildSearchUrl("33063", "location", "2");
+Deno.test("buildSearchUrl : location -> Rent, neuf, ci numerique", () => {
+  const u = buildSearchUrl("330063", "location", "2");
   assertEquals(u.includes("distributionTypes=Rent"), true);
   assertEquals(u.includes("natures=2"), true);
-  assertEquals(u.includes(encodeURIComponent('[{"inseeCodes":["33063"]}]')), true);
+  // ci doit etre un NOMBRE dans places (pas une chaine)
+  assertEquals(u.includes(encodeURIComponent('[{"inseeCodes":[330063]}]')), true);
 });
 
 Deno.test("buildSearchUrl : vente -> Buy", () => {
-  const u = buildSearchUrl("33063", "vente", "2");
+  const u = buildSearchUrl("330063", "vente", "2");
   assertEquals(u.includes("distributionTypes=Buy"), true);
 });
 

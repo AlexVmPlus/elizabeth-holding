@@ -75,6 +75,26 @@ async function geocodeCity(ville: string): Promise<GeoInfo | null> {
   };
 }
 
+// --- Resout la ville -> code place SeLoger (ci) via l'autocomplete SeLoger ---
+// Renvoie le code "ci" (ex Bordeaux 330063) attendu dans le parametre places.
+// Fallback : derive le ci depuis l'INSEE (dept + commune sur 4 chiffres).
+async function selogerCi(ville: string, fallbackInsee: string): Promise<string> {
+  try {
+    const u = `https://autocomplete.svc.groupe-seloger.com/auto/complete/0/Ville/6?text=${encodeURIComponent(ville)}`;
+    const r = await fetch(u, { headers: { "User-Agent": "Mozilla/5.0" } });
+    if (r.ok) {
+      const arr = await r.json();
+      if (Array.isArray(arr)) {
+        const hit = arr.find((x) => x?.Type === "Ville" && x?.Params?.ci);
+        if (hit) return String(hit.Params.ci);
+      }
+    }
+  } catch (_) { /* fallback ci-dessous */ }
+  // Fallback metropole : INSEE 5 chiffres "DDCCC" -> ci "DD" + "CCC".padStart(4,"0")
+  const m = fallbackInsee.match(/^(\d{2})(\d{3})$/);
+  return m ? m[1] + m[2].padStart(4, "0") : fallbackInsee;
+}
+
 // --- Apify : run-sync + recuperation directe du dataset ---------------------
 async function apifyRunSync(
   actorId: string,
@@ -126,8 +146,9 @@ Deno.serve(async (req: Request) => {
     const geo = await geocodeCity(ville);
     if (!geo) return json({ error: `Ville introuvable : ${ville}` }, 404);
 
-    // 2. URL de recherche SeLoger
-    const searchUrl = buildSearchUrl(geo.insee, transaction, natures);
+    // 2. Code place SeLoger (ci) + URL de recherche
+    const ci = await selogerCi(ville, geo.insee);
+    const searchUrl = buildSearchUrl(ci, transaction, natures);
 
     // 3. Actor LISTE -> URLs d'annonces
     const listItems = await apifyRunSync(APIFY_LIST_ACTOR, { startUrl: searchUrl, maxItems }, APIFY_TOKEN);
@@ -140,7 +161,7 @@ Deno.serve(async (req: Request) => {
 
     if (uniqueUrls.length === 0) {
       return json({
-        ville: geo.nom, quartier: quartier || null, transaction, searchUrl, insee: geo.insee,
+        ville: geo.nom, quartier: quartier || null, transaction, searchUrl, insee: geo.insee, ci,
         annoncesTrouvees: 0, annoncesRetenues: 0, inserted: 0,
         message: "Aucune annonce trouvee pour ces criteres (essayez natures='1,2' ou une autre transaction).",
         parTypologie: {}, global: null,
@@ -187,6 +208,7 @@ Deno.serve(async (req: Request) => {
       quartier: quartier || null,
       transaction,
       insee: geo.insee,
+      ci,
       searchUrl,
       scrapedAt,
       annoncesTrouvees: uniqueUrls.length,
