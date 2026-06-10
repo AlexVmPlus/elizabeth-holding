@@ -1,0 +1,91 @@
+import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { buildSearchUrl, cleanDetail, type GeoInfo, synthesize, typologie } from "./lib.ts";
+
+const GEO: GeoInfo = { insee: "33063", nom: "Bordeaux", lat: 44.84, lng: -0.58, codePostal: "33000" };
+const AT = "2026-06-10T00:00:00.000Z";
+
+Deno.test("typologie T1..T6", () => {
+  assertEquals(typologie(1), "T1");
+  assertEquals(typologie(5), "T5");
+  assertEquals(typologie(6), "T6");
+  assertEquals(typologie(9), "T6"); // plafonne a T6
+  assertEquals(typologie(0), null);
+  assertEquals(typologie(null), null);
+});
+
+Deno.test("buildSearchUrl : location -> Rent, neuf", () => {
+  const u = buildSearchUrl("33063", "location", "2");
+  assertEquals(u.includes("distributionTypes=Rent"), true);
+  assertEquals(u.includes("natures=2"), true);
+  assertEquals(u.includes(encodeURIComponent('[{"inseeCodes":["33063"]}]')), true);
+});
+
+Deno.test("buildSearchUrl : vente -> Buy", () => {
+  const u = buildSearchUrl("33063", "vente", "2");
+  assertEquals(u.includes("distributionTypes=Buy"), true);
+});
+
+Deno.test("cleanDetail : location calcule loyer_hc et prix/m2", () => {
+  const r = cleanDetail(
+    { title: "Appartement neuf T2", rooms: 2, livingArea: 45, price: 850, flatRateCharges: 50, city: "Bordeaux", zipCode: "33800", energyBalance: "B", propertyNature: "appartement", permalink: "https://x/1" },
+    "location",
+    "Saint Jean-Belcier",
+    GEO,
+    AT,
+  )!;
+  assertEquals(r.surface, 45);
+  assertEquals(r.loyer_cc, 850);
+  assertEquals(r.charges, 50);
+  assertEquals(r.loyer_hc, 800);
+  assertEquals(r.prix_m2_cc, 18.89); // 850/45
+  assertEquals(r.prix_m2_hc, 17.78); // 800/45
+  assertEquals(r.typologie, "T2");
+  assertEquals(r.code_postal, "33800");
+  assertEquals(r.source, "seloger");
+});
+
+Deno.test("cleanDetail : rejette colocation / chambre de service", () => {
+  assertEquals(cleanDetail({ title: "Chambre en colocation", rooms: 1, livingArea: 12, price: 400 }, "location", "", GEO, AT), null);
+  assertEquals(cleanDetail({ title: "Chambre de service", rooms: 1, livingArea: 9, price: 350 }, "location", "", GEO, AT), null);
+});
+
+Deno.test("cleanDetail : rejette surface 0 ou prix 0", () => {
+  assertEquals(cleanDetail({ title: "T2", rooms: 2, livingArea: 0, price: 800 }, "location", "", GEO, AT), null);
+  assertEquals(cleanDetail({ title: "T2", rooms: 2, livingArea: 40, price: 0 }, "location", "", GEO, AT), null);
+});
+
+Deno.test("synthese : prix/m2 pondere par surface (location)", () => {
+  const rows = [
+    cleanDetail({ title: "T2", rooms: 2, livingArea: 45, price: 850, flatRateCharges: 50 }, "location", "", GEO, AT)!,
+    cleanDetail({ title: "T2", rooms: 2, livingArea: 40, price: 800, flatRateCharges: 40 }, "location", "", GEO, AT)!,
+    cleanDetail({ title: "T1", rooms: 1, livingArea: 25, price: 600, flatRateCharges: 30 }, "location", "", GEO, AT)!,
+  ];
+  const s = synthesize(rows, "location");
+  // T2 : surfaces 45+40=85 ; CC 850+800=1650 ; HC 800+760=1560
+  assertEquals(s.parTypologie.T2!.nb_annonces, 2);
+  assertEquals(s.parTypologie.T2!.prix_m2_cc_pondere, 19.41); // 1650/85
+  assertEquals(s.parTypologie.T2!.prix_m2_hc_pondere, 18.35); // 1560/85
+  assertEquals(s.parTypologie.T2!.surface_moyenne, 42.5);
+  // T1 : 600/25=24 CC, 570/25=22.8 HC
+  assertEquals(s.parTypologie.T1!.prix_m2_cc_pondere, 24);
+  assertEquals(s.parTypologie.T1!.prix_m2_hc_pondere, 22.8);
+  // global : surfaces 110 ; CC 2250 ; HC 2130
+  assertEquals(s.global!.nb_annonces, 3);
+  assertEquals(s.global!.prix_m2_cc_pondere, round2(2250 / 110)); // 20.45
+  assertEquals(s.global!.prix_m2_hc_pondere, round2(2130 / 110)); // 19.36
+});
+
+Deno.test("synthese : vente pondere le prix de vente", () => {
+  const rows = [
+    cleanDetail({ title: "T3 neuf", rooms: 3, livingArea: 60, price: 300000 }, "vente", "", GEO, AT)!,
+    cleanDetail({ title: "T3 neuf", rooms: 3, livingArea: 40, price: 220000 }, "vente", "", GEO, AT)!,
+  ];
+  const s = synthesize(rows, "vente");
+  // sum prix 520000 / sum surf 100 = 5200 €/m2
+  assertEquals(s.global!.prix_m2_cc_pondere, 5200);
+  assertEquals(s.parTypologie.T3!.nb_annonces, 2);
+});
+
+function round2(x: number) {
+  return Math.round(x * 100) / 100;
+}

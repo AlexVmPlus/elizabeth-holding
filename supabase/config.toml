@@ -1,0 +1,9 @@
+# Supabase config — Elizabeth Holding
+# Projet : wywndgujgtyyzzhviagu
+project_id = "wywndgujgtyyzzhviagu"
+
+# La fonction est appelee depuis le navigateur (front GitHub Pages) avec la cle
+# publishable. On desactive la verification JWT pour simplifier l'appel cote client.
+# NB : l'endpoint devient public — voir le README pour limiter les abus (cout Apify).
+[functions.scrape-etude]
+verify_jwt = false

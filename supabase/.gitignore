@@ -1,0 +1,5 @@
+# Supabase local artifacts & secrets — ne jamais committer
+.branches
+.temp
+.env
+.env.local
