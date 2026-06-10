@@ -74,6 +74,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;margin-top:30px}.fi{displ
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(120px);background:var(--deep);color:#fff;padding:14px 24px;border-radius:12px;box-shadow:var(--sh);font-weight:600;z-index:2000;transition:transform .35s}.toast.show{transform:translateX(-50%) translateY(0)}
 .dl{margin-top:28px}.dl table{width:100%;border-collapse:collapse;font-size:14px}.dl th,.dl td{padding:11px 12px;text-align:left;border-bottom:1px solid var(--line)}.dl th{font-size:12px;text-transform:uppercase;color:var(--soft)}
 .del{background:#ffe9ef;color:var(--rose);border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-weight:600;font-family:var(--f)}
+.edit{background:var(--bsoft);color:var(--blue);border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-weight:600;font-family:var(--f);margin-right:6px}
 .view{display:none}.view.active{display:block}
 .leaflet-popup-content{font-family:var(--f)}.mp b{color:var(--deep)}.mp .r{font-size:13px;color:var(--soft)}
 </style></head><body>
@@ -119,11 +120,11 @@ footer{border-top:1px solid var(--line);padding:36px 0;margin-top:30px}.fi{displ
 <div class="fld"><label>Cle / endpoint</label><input type="text" placeholder="https://api.votre-outil.com/... (a configurer)" disabled></div>
 <button class="btn bg2" style="width:100%" disabled>Lancer une collecte (bientot)</button></div>
 </div>
-<div class="fc"><h3>Nouveau programme</h3><p class="hint">Ville, quartier, et prix au m2. Coordonnees optionnelles (sinon centre sur la ville).</p>
+<div class="fc"><h3>Nouveau programme</h3><p class="hint">Tapez l'adresse : la ville et le quartier se remplissent automatiquement (modifiables).</p>
+<div class="fld" id="fadrwrap" style="position:relative"><label>Adresse *</label><input id="fadr" placeholder="ex. 12 rue de Paris, Nanterre..." autocomplete="off"><div class="sugg" id="fsg" style="top:calc(100% + 4px)"></div></div>
 <div class="g2"><div class="fld"><label>Ville *</label><input id="fv" placeholder="ex. Nanterre"></div><div class="fld"><label>Quartier</label><input id="fq" placeholder="ex. Centre"></div></div>
-<div class="g2"><div class="fld"><label>Latitude</label><input id="fla" type="number" step="0.0001" placeholder="48.89"></div><div class="fld"><label>Longitude</label><input id="flo" type="number" step="0.0001" placeholder="2.20"></div></div>
 <div class="g2"><div class="fld"><label>Prix vente (&euro;/m2)</label><input id="fpv" type="number" placeholder="7000"></div><div class="fld"><label>Loyer (&euro;/m2/mois)</label><input id="fl" type="number" step="0.1" placeholder="25"></div></div>
-<button id="save" class="btn bp" style="width:100%;margin-top:8px">Enregistrer et ajouter a la carte</button>
+<div style="display:flex;gap:10px;margin-top:8px"><button id="save" class="btn bp" style="flex:1">Enregistrer et ajouter a la carte</button><button id="fcancel" class="btn bg2" style="display:none">Annuler</button></div>
 <div class="dl" id="dl"></div>
 </div></div></section></div>
 
@@ -210,15 +211,43 @@ function nm(id){var v=parseFloat(document.getElementById(id).value);return isNaN
 function toast(m){var t=document.getElementById("toast");t.textContent=m;t.classList.add("show");setTimeout(function(){t.classList.remove("show")},2600)}
 function ld(){try{return JSON.parse(localStorage.getItem("EH_USER")||'{"programmes":[]}')}catch(e){return{programmes:[]}}}
 function sv(d){localStorage.setItem("EH_USER",JSON.stringify(d))}
-var sb=document.getElementById("save");if(sb)sb.onclick=function(){var v=document.getElementById("fv").value.trim();if(!v){toast("Ville obligatoire");return}
-var q=document.getElementById("fq").value.trim()||v,la=nm("fla"),lo=nm("flo"),pv=nm("fpv"),l=nm("fl");
-if(la==null||lo==null){var vv=DB.villes.find(function(x){return x.ville.toLowerCase()==v.toLowerCase()});if(vv){la=la==null?vv.lat:la;lo=lo==null?vv.lng:lo}else{toast("Indiquez lat/lng (ville inconnue)");return}}
+var fLat=null,fLng=null,editIdx=null;
+var sb=document.getElementById("save");
+
+/* --- autocompletion d'adresse (API gratuite api-adresse.data.gouv.fr) --- */
+var fadr=document.getElementById("fadr"),fsg=document.getElementById("fsg"),fT=null,fA=[];
+function frender(){if(!fA.length){fsg.classList.remove("show");fsg.innerHTML="";return}
+fsg.innerHTML=fA.map(function(f,i){var p=f.properties;return '<div class="sug" data-i="'+i+'"><span class="tag ville">adresse</span><span>'+p.label+'</span><span class="m">'+(p.city||p.postcode||"")+'</span></div>'}).join("");
+fsg.classList.add("show");[].forEach.call(fsg.querySelectorAll(".sug"),function(el){el.onclick=function(){fpick(fA[+el.dataset.i])}})}
+function ffetch(q){fetch("https://api-adresse.data.gouv.fr/search/?q="+encodeURIComponent(q)+"&limit=5").then(function(r){return r.json()}).then(function(j){fA=(j&&j.features)||[];frender()}).catch(function(){fA=[];frender()})}
+function fpick(f){if(!f)return;var p=f.properties,c=f.geometry.coordinates;fLng=c[0];fLat=c[1];fadr.value=p.label;
+document.getElementById("fv").value=p.city||"";document.getElementById("fq").value=p.district||p.city||"";fsg.classList.remove("show")}
+if(fadr){fadr.oninput=function(){var q=fadr.value.trim();fLat=null;fLng=null;if(fT)clearTimeout(fT);if(q.length<3){fA=[];frender();return}fT=setTimeout(function(){ffetch(q)},250)};
+fadr.onkeydown=function(e){if(e.key=="Escape")fsg.classList.remove("show")}}
+document.addEventListener("click",function(e){if(!e.target.closest("#fadrwrap"))fsg.classList.remove("show")});
+
+function resetForm(){["fv","fq","fadr","fpv","fl"].forEach(function(i){var el=document.getElementById(i);if(el)el.value=""});fLat=null;fLng=null;editIdx=null;if(sb)sb.textContent="Enregistrer et ajouter a la carte";var c=document.getElementById("fcancel");if(c)c.style.display="none"}
+var fc=document.getElementById("fcancel");if(fc)fc.onclick=function(){resetForm();toast("Annule")};
+
+if(sb)sb.onclick=function(){var v=document.getElementById("fv").value.trim();if(!v){toast("Ville obligatoire");return}
+var q=document.getElementById("fq").value.trim()||v,pv=nm("fpv"),l=nm("fl"),la=fLat,lo=fLng;
+if(la==null||lo==null){var vv=DB.villes.find(function(x){return x.ville.toLowerCase()==v.toLowerCase()});if(vv){la=vv.lat;lo=vv.lng}else{toast("Choisissez une adresse dans la liste");return}}
 if(pv==null&&l==null){toast("Indiquez au moins un prix");return}
-var d=ld();d.programmes.push({v:v,q:q,lat:la,lng:lo,pv:pv,l1:l,l3:l,pr:"Saisie manuelle",pg:q});sv(d);
-toast("Enregistre ! Rechargez pour voir sur la carte.");["fv","fq","fla","flo","fpv","fl"].forEach(function(i){document.getElementById(i).value=""});rl()};
+var d=ld(),rec={v:v,q:q,lat:la,lng:lo,pv:pv,l1:l,l3:l,pr:"Saisie manuelle",pg:q,adr:document.getElementById("fadr").value.trim()};
+if(editIdx!=null&&d.programmes[editIdx]){d.programmes[editIdx]=rec;sv(d);toast("Modifie ! Rechargez pour voir sur la carte.")}
+else{d.programmes.push(rec);sv(d);toast("Enregistre ! Rechargez pour voir sur la carte.")}
+resetForm();rl()};
+
+function loadEdit(i){var d=ld(),p=d.programmes[i];if(!p)return;
+document.getElementById("fv").value=p.v||"";document.getElementById("fq").value=p.q||"";document.getElementById("fadr").value=p.adr||"";
+document.getElementById("fpv").value=p.pv!=null?p.pv:"";document.getElementById("fl").value=p.l1!=null?p.l1:"";
+fLat=p.lat;fLng=p.lng;editIdx=i;if(sb)sb.textContent="Mettre a jour ce programme";var c=document.getElementById("fcancel");if(c)c.style.display="inline-flex";
+var box=document.querySelector("#view-etudes .fc");if(box)box.scrollIntoView({behavior:"smooth"})}
+
 function rl(){var d=ld(),el=document.getElementById("dl");if(!el)return;if(!d.programmes.length){el.innerHTML='<p style="color:var(--soft);font-size:14px;margin-top:24px">Aucun ajout. Les programmes existants restent sur la carte.</p>';return}
-el.innerHTML='<h3 style="font-size:16px;margin:28px 0 10px">Vos ajouts ('+d.programmes.length+')</h3><table><thead><tr><th>Ville</th><th>Quartier</th><th>Vente</th><th>Loyer</th><th></th></tr></thead><tbody>'+d.programmes.map(function(p,i){return '<tr><td><b>'+p.v+'</b></td><td>'+p.q+'</td><td>'+(p.pv?euro(p.pv)+" &euro;":"-")+'</td><td>'+(p.l1?e1(p.l1)+" &euro;":"-")+'</td><td><button class="del" data-i="'+i+'">Suppr</button></td></tr>'}).join("")+'</tbody></table>';
-[].forEach.call(el.querySelectorAll(".del"),function(b){b.onclick=function(){var d=ld();d.programmes.splice(+b.dataset.i,1);sv(d);rl();toast("Supprime")}})}
+el.innerHTML='<h3 style="font-size:16px;margin:28px 0 10px">Vos ajouts ('+d.programmes.length+')</h3><table><thead><tr><th>Ville</th><th>Quartier</th><th>Vente</th><th>Loyer</th><th></th></tr></thead><tbody>'+d.programmes.map(function(p,i){return '<tr><td><b>'+p.v+'</b></td><td>'+p.q+'</td><td>'+(p.pv?euro(p.pv)+" &euro;":"-")+'</td><td>'+(p.l1?e1(p.l1)+" &euro;":"-")+'</td><td style="white-space:nowrap"><button class="edit" data-i="'+i+'">Modifier</button><button class="del" data-i="'+i+'">Suppr</button></td></tr>'}).join("")+'</tbody></table>';
+[].forEach.call(el.querySelectorAll(".edit"),function(b){b.onclick=function(){loadEdit(+b.dataset.i)}});
+[].forEach.call(el.querySelectorAll(".del"),function(b){b.onclick=function(){var d=ld(),i=+b.dataset.i;d.programmes.splice(i,1);sv(d);if(editIdx!=null&&(editIdx==i)){resetForm()}rl();toast("Supprime")}})}
 
 /* ====== NAVIGATION ====== */
 function show(v,sc){document.querySelectorAll(".view").forEach(function(x){x.classList.remove("active")});var el=document.getElementById("view-"+v);if(el)el.classList.add("active");window.scrollTo(0,0);
