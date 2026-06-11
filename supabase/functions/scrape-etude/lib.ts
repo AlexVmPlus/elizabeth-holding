@@ -99,15 +99,33 @@ export function parsePieces(text: string): number | null {
 const NUM_RE = `(\\d[\\d${SP}]{0,6})`;
 export function parseCharges(text: string): number | null {
   if (!text) return null;
+  // 0. "Charges forfaitaires 50 €/mois" -> motif PRINCIPAL valide sur SeLoger
+  let m = text.match(new RegExp(`charges\\s+forfaitaires?\\s*:?\\s*${NUM_RE}\\s*€`, "i"));
   // 1. "... 95 € de charges" / "dont 95 € de charges" (montant AVANT, avec "de")
-  let m = text.match(new RegExp(`${NUM_RE}\\s*€\\s*de\\s+charges`, "i"));
-  // 2. "charges (:) 80 €" (montant APRES) — mais PAS "hors/sans charges 760 €"
+  if (!m) m = text.match(new RegExp(`${NUM_RE}\\s*€\\s*de\\s+charges`, "i"));
+  // 2. "charges (:) 80 €" / "provision pour charges 80 €" (montant APRES) —
+  //    mais PAS "hors/sans charges 760 €" (760 = loyer HC, pas les charges).
   if (!m) {
     m = text.match(new RegExp(`(?<!hors[ ${SP}])(?<!sans[ ${SP}])charges\\s*:?\\s*${NUM_RE}\\s*€`, "i"));
   }
   if (!m) return null;
   const n = parseInt(m[1].replace(new RegExp(`[${SP}]`, "g"), ""), 10);
   return isFinite(n) && n > 0 ? n : null;
+}
+
+// Fusionne les annonces partielles (loyer_cc/surface...) avec les markdowns
+// detail (batch) pour en extraire les charges -> loyer_hc / prix_m2_hc.
+// Sans charges trouvees : charges/loyer_hc/prix_m2_hc restent null (stats CC OK).
+// deno-lint-ignore no-explicit-any
+export function mergeCharges(partielles: any[], markdowns: Array<string | null | undefined>): any[] {
+  return partielles.map((a, i) => {
+    const charges = parseCharges(markdowns[i] || "");
+    if (charges != null && a.loyer_cc != null && a.surface > 0 && charges < a.loyer_cc) {
+      const loyer_hc = round(a.loyer_cc - charges);
+      return { ...a, charges, loyer_hc, prix_m2_hc: round(loyer_hc / a.surface) };
+    }
+    return { ...a, charges: null, loyer_hc: null, prix_m2_hc: null };
+  });
 }
 
 export interface RawAnnonce {
@@ -279,10 +297,19 @@ export function matchesAnnee(titre: string | null | undefined, anneeMin: number 
 
 // ----------------------------------------------------------------------------
 // Synthese : prix/m2 PONDERE PAR SURFACE, par typologie T1..T6 + global.
-// (Logique conservee de l'ancienne version.)
+// Accepte tout objet ayant les champs de stats (Row ou annonce fusionnee).
 // ----------------------------------------------------------------------------
-export function synthesize(rows: Row[], transaction: Transaction) {
-  const calc = (arr: Row[]) => {
+export interface StatRow {
+  surface: number;
+  typologie: string | null;
+  loyer_cc: number | null;
+  loyer_hc: number | null;
+  prix_m2_cc: number | null;
+  prix_m2_hc: number | null;
+}
+
+export function synthesize(rows: StatRow[], transaction: Transaction) {
+  const calc = (arr: StatRow[]) => {
     const n = arr.length;
     if (!n) return null;
     let sumSurf = 0;
@@ -322,7 +349,7 @@ export function synthesize(rows: Row[], transaction: Transaction) {
     };
   };
 
-  const groups: Record<string, Row[]> = {};
+  const groups: Record<string, StatRow[]> = {};
   for (const r of rows) (groups[r.typologie || "?"] ||= []).push(r);
 
   const parTypologie: Record<string, ReturnType<typeof calc>> = {};

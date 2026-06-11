@@ -146,7 +146,7 @@ tr.ea-rowlink{cursor:pointer}tr.ea-rowlink:hover td{background:var(--bsoft)}.ea-
 <div class="g2"><div class="fld"><label>Ville *</label><input id="ea-ville" placeholder="ex. Bordeaux" autocomplete="off"></div><div class="fld"><label>Quartier (optionnel)</label><input id="ea-quartier" placeholder="ex. Saint Jean-Belcier" autocomplete="off"></div></div>
 <div class="fld"><label>Transaction</label><select id="ea-transaction"><option value="location">Location</option><option value="vente">Vente</option></select></div>
 <div class="gt" style="margin-top:18px">Filtres (optionnels)</div>
-<div class="g2"><div class="fld"><label>Typologie</label><select id="ea-typologie"><option value="">Toutes</option><option value="T1">Studio/T1</option><option value="T2">T2</option><option value="T3">T3</option><option value="T4">T4</option><option value="T5">T5</option><option value="T6">T6</option></select></div><div class="fld"><label>Nombre max d'annonces (1-60)</label><input id="ea-max" type="number" min="1" max="60" placeholder="30"></div></div>
+<div class="g2"><div class="fld"><label>Typologie</label><select id="ea-typologie"><option value="">Toutes</option><option value="T1">Studio/T1</option><option value="T2">T2</option><option value="T3">T3</option><option value="T4">T4</option><option value="T5">T5</option><option value="T6">T6</option></select></div><div class="fld"><label>Nombre max d'annonces</label><select id="ea-max"><option value="20">20</option><option value="30" selected>30</option><option value="50">50</option><option value="100">100</option><option value="toutes">Toutes (~25/page)</option></select></div></div>
 <div class="fld"><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="ea-neuf" style="accent-color:var(--blue);width:16px;height:16px;margin:0">Neuf uniquement</label><span class="hint" style="display:block;margin-top:4px">Logements neufs (selon SeLoger)</span></div>
 <button id="ea-run" class="btn bp" style="width:100%;margin-top:8px">Lancer l'etude</button>
 <p class="hint" style="margin:14px 0 0">&#128274; Le lancement est protege par mot de passe (consommation de credit). La consultation du site reste libre.</p>
@@ -318,13 +318,13 @@ el.innerHTML='<h3 style="font-size:16px;margin:28px 0 10px">Programmes en base (
 /* ====== ETUDE AUTO (scraping SeLoger via Edge Function scrape-etude) ====== */
 var EA_FN="https://wywndgujgtyyzzhviagu.supabase.co/functions/v1/scrape-etude";
 var EA_KEY="sb_publishable_X0-vzzI4TjUyK2UBboENqw_iH1GT6Rw";
-var eaRun=document.getElementById("ea-run"),eaResult=document.getElementById("ea-result"),eaLast=null;
+var eaRun=document.getElementById("ea-run"),eaResult=document.getElementById("ea-result");
+var eaState={jobId:null,partielles:[],ctx:null,timer:null,startTs:0};
 function eaEsc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]})}
 function eaVal(id){var el=document.getElementById(id);if(!el)return null;var s=(el.value||"").trim();if(s==="")return null;var n=parseFloat(s);return isNaN(n)?null:n}
 function eaDate(iso){try{var d=new Date(iso);return d.toLocaleDateString("fr-FR")+" a "+d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}catch(e){return eaEsc(iso)}}
 /* loyer/m2 (location) en 1 decimale ; prix/m2 (vente) en entier ; null -> n/d */
 function eaPrix(x,tr){if(x==null)return '<span style="color:var(--soft)">n/d</span>';return (tr=="vente"?euro(x):e1(x))+" &euro;"}
-function eaLoading(){return '<div class="card" style="padding:36px;text-align:center"><div class="spinner"></div><p style="margin-top:18px;font-weight:700">Etude en cours, analyse des annonces SeLoger&hellip;</p><p style="color:var(--soft);font-size:14px;margin-top:4px">Cela prend generalement 1 a 3 minutes. Merci de patienter, ne fermez pas la page.</p></div>'}
 function eaError(msg){return '<div class="card" style="padding:28px"><div style="font-size:30px">&#9888;&#65039;</div><h3 style="margin:8px 0 4px">Etude impossible</h3><p style="color:var(--soft)">'+eaEsc(msg)+'</p><p style="color:var(--soft);font-size:14px;margin-top:8px">Reessayez dans un instant, ou avec une autre ville / transaction.</p></div>'}
 function eaFiche(j){
 var nb=j.annoncesRetenues!=null?j.annoncesRetenues:(j.annoncesTrouvees||0);
@@ -364,27 +364,47 @@ if(f.typologie)notes.push("typologie "+f.typologie);
 if(f.neufOnly)notes.push("neuf uniquement");}
 var filtreLine=notes.length?'<div style="padding:0 24px 6px;color:var(--soft);font-size:13px">Filtres : '+notes.join(" &middot; ")+'</div>':'';
 var foot='<div style="padding:6px 24px 18px;color:var(--soft);font-size:13px">Source : SeLoger &middot; vue de verification brute (chaque ligne ouvre l\'annonce). '+(j.inserted!=null?j.inserted+' annonce'+(j.inserted>1?'s':'')+' enregistree'+(j.inserted>1?'s':'')+' en base.':'')+'</div>';
-var btn='<div style="padding:0 24px 24px"><button id="ea-genfiche" class="btn bp">Generer la fiche complete &rarr;</button></div>';
-return '<div class="card" id="ea-prefiche">'+head+filtreLine+table+foot+btn+'</div><div id="ea-fiche-zone" style="margin-top:20px"></div>'}
-/* rendu + cablage des interactions (lignes cliquables + bouton fiche) */
-function eaRender(j){eaLast=j;eaResult.innerHTML=eaPrefiche(j);
-if(window.gsap)gsap.from("#ea-prefiche",{y:22,opacity:0,duration:.5,ease:"power3.out"});
-[].forEach.call(eaResult.querySelectorAll("tr.ea-rowlink"),function(tr){tr.onclick=function(e){if(e.target.closest("a"))return;var u=tr.getAttribute("data-url");if(u)window.open(u,"_blank","noopener")}});
-var gen=document.getElementById("ea-genfiche");if(gen)gen.onclick=function(){var z=document.getElementById("ea-fiche-zone");if(!z)return;z.innerHTML=eaFiche(eaLast);if(window.gsap)gsap.from("#ea-fiche",{y:18,opacity:0,duration:.45,ease:"power3.out"});gen.disabled=true;gen.textContent="Fiche generee ci-dessous";z.scrollIntoView({behavior:"smooth"})}}
+return '<div class="card" id="ea-prefiche">'+head+filtreLine+table+foot+'</div>'}
+/* banniere de progression / succes au-dessus de la pre-fiche */
+function eaProgress(text,credits){return '<div class="card" id="ea-banner" style="padding:16px 22px;display:flex;align-items:center;gap:14px;margin-bottom:16px"><div class="spinner" style="width:26px;height:26px;border-width:3px;margin:0"></div><div><b>'+eaEsc(text)+'</b>'+(credits!=null?'<div style="color:var(--soft);font-size:13px;margin-top:2px">&#8776; '+credits+' credits Firecrawl</div>':'')+'</div></div>'}
+function eaDone(text,credits,fromCache){return '<div class="card" id="ea-banner" style="padding:14px 22px;margin-bottom:16px;border-left:4px solid var(--teal)"><b>&#10003; '+eaEsc(text)+'</b><span style="color:var(--soft);font-size:13px;margin-left:8px">'+(fromCache?'depuis le cache (0 credit)':(credits!=null?'&#8776; '+credits+' credits Firecrawl':''))+'</span></div>'}
+/* appel API (start ou poll) -> json, throw si erreur */
+function eaApi(body){return fetch(EA_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+EA_KEY},body:JSON.stringify(body)}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error((j&&(j.error||j.detail))||("HTTP "+r.status));return j},function(){throw new Error("Reponse invalide (HTTP "+r.status+")")})})}
+/* rend banniere + pre-fiche (+ fiche synthese si fournie) et cable les lignes */
+function eaShow(j,opts){opts=opts||{};var html=(opts.banner||'')+eaPrefiche(j);if(opts.fiche)html+='<div style="margin-top:20px">'+eaFiche(j)+'</div>';
+eaResult.innerHTML=html;if(window.gsap)gsap.from("#ea-prefiche",{y:18,opacity:0,duration:.45,ease:"power3.out"});
+[].forEach.call(eaResult.querySelectorAll("tr.ea-rowlink"),function(tr){tr.onclick=function(e){if(e.target.closest("a"))return;var u=tr.getAttribute("data-url");if(u)window.open(u,"_blank","noopener")}})}
+function eaStopPoll(){if(eaState.timer){clearTimeout(eaState.timer);eaState.timer=null}eaState.jobId=null}
+function eaSetBanner(html){var b=document.getElementById("ea-banner");if(b)b.outerHTML=html}
+/* affichage final (cache, vente, ou poll termine) : pre-fiche + synthese */
+function eaFinish(res){eaStopPoll();var nb=res.annoncesRetenues!=null?res.annoncesRetenues:((res.annonces&&res.annonces.length)||0);
+var credits=res.creditsEstimes!=null?res.creditsEstimes:(eaState.ctx&&eaState.ctx.credits);
+eaShow(res,{banner:eaDone("Etude complete — "+nb+" annonce"+(nb>1?"s":""),credits,res.fromCache),fiche:true});
+eaRun.disabled=false;eaRun.textContent="Lancer l'etude"}
+/* polling de la phase 2 */
+function eaPoll(){if(!eaState.jobId)return;
+if(Date.now()-eaState.startTs>180000){eaSetBanner(eaError("Le traitement prend plus longtemps que prevu. Reessayez avec moins d'annonces."));eaStopPoll();eaRun.disabled=false;eaRun.textContent="Lancer l'etude";return}
+eaApi({phase:"poll",jobId:eaState.jobId,ville:eaState.ctx.ville,quartier:eaState.ctx.quartier,transaction:eaState.ctx.transaction,annoncesPartielles:eaState.partielles})
+.then(function(res){if(res.done){res.ville=eaState.ctx.ville;res.quartier=eaState.ctx.quartier;res.filtres=eaState.ctx.filtres;eaFinish(res);return}
+eaSetBanner(eaProgress("Recuperation des charges en cours… "+(res.progress||"?"),eaState.ctx.credits));
+eaState.timer=setTimeout(eaPoll,3500)})
+.catch(function(err){console.error("poll",err);eaSetBanner(eaError((err&&err.message)||"Erreur pendant la recuperation des charges."));eaStopPoll();eaRun.disabled=false;eaRun.textContent="Lancer l'etude"})}
+/* clic "Lancer l'etude" : phase start puis polling */
 if(eaRun)eaRun.onclick=function(){
 var ville=document.getElementById("ea-ville").value.trim();if(!ville){toast("Ville obligatoire");return}
-var body={ville:ville,quartier:document.getElementById("ea-quartier").value.trim(),transaction:document.getElementById("ea-transaction").value};
+var body={phase:"start",ville:ville,quartier:document.getElementById("ea-quartier").value.trim(),transaction:document.getElementById("ea-transaction").value};
 var typo=document.getElementById("ea-typologie").value;if(typo)body.typologie=typo;
-var maxItems=eaVal("ea-max");if(maxItems!=null)body.maxItems=maxItems;
+var maxSel=document.getElementById("ea-max").value;body.maxItems=(maxSel==="toutes")?100:(parseInt(maxSel,10)||30);
 if(document.getElementById("ea-neuf").checked)body.neufOnly=true;
-requireAuth(function(){
-eaRun.disabled=true;eaRun.textContent="Etude en cours...";eaResult.innerHTML=eaLoading();
-fetch(EA_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+EA_KEY},body:JSON.stringify(body)})
-.then(function(r){return r.json().then(function(j){return {ok:r.ok,status:r.status,j:j}},function(){return {ok:r.ok,status:r.status,j:null}})})
-.then(function(res){if(!res.ok||!res.j){throw new Error((res.j&&(res.j.error||res.j.detail))||("Erreur serveur (HTTP "+res.status+")"))}
-eaRender(res.j)})
-.catch(function(err){console.error("etude auto",err);eaResult.innerHTML=eaError((err&&err.message)||"Echec de l'etude (delai depasse ou reseau).")})
-.then(function(){eaRun.disabled=false;eaRun.textContent="Lancer l'etude"})})};
+requireAuth(function(){eaStopPoll();eaRun.disabled=true;eaRun.textContent="Lancement…";eaResult.innerHTML=eaProgress("Recuperation de la liste d'annonces…",null);
+eaApi(body).then(function(res){
+if(res.done){eaFinish(res);return}
+eaState.jobId=res.jobId;eaState.partielles=res.annoncesPartielles||[];eaState.startTs=Date.now();
+eaState.ctx={ville:res.ville,quartier:res.quartier,transaction:res.transaction,filtres:res.filtres,credits:res.creditsEstimes};
+eaShow({annonces:eaState.partielles,transaction:res.transaction,ville:res.ville,quartier:res.quartier,scrapedAt:res.scrapedAt,filtres:res.filtres,annoncesRetenues:res.total},
+{banner:eaProgress("Recuperation des charges en cours… 0/"+(res.total||eaState.partielles.length),res.creditsEstimes)});
+eaRun.textContent="Etude en cours…";eaState.timer=setTimeout(eaPoll,3500)})
+.catch(function(err){console.error("start",err);eaResult.innerHTML=eaError((err&&err.message)||"Echec du lancement.");eaRun.disabled=false;eaRun.textContent="Lancer l'etude"})})};
 
 /* ====== NAVIGATION ====== */
 function show(v,sc){document.querySelectorAll(".view").forEach(function(x){x.classList.remove("active")});var el=document.getElementById("view-"+v);if(el)el.classList.add("active");window.scrollTo(0,0);

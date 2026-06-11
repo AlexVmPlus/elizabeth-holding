@@ -5,6 +5,7 @@ import {
   matchesAnnee,
   matchesNeuf,
   matchesTypologie,
+  mergeCharges,
   parseAnnonces,
   parseCharges,
   parseLoyer,
@@ -75,7 +76,8 @@ Deno.test("parsePieces : pieces / studio / T2", () => {
   assertEquals(parsePieces("rien"), null);
 });
 
-Deno.test("parseCharges : provision / charges / dont X € de charges", () => {
+Deno.test("parseCharges : forfaitaires / provision / dont X € de charges", () => {
+  assertEquals(parseCharges("Charges forfaitaires 50 €/mois"), 50); // motif principal
   assertEquals(parseCharges("Provision pour charges : 80 €"), 80);
   assertEquals(parseCharges("Charges 120 €/mois"), 120);
   assertEquals(parseCharges("dont 95 € de charges"), 95);
@@ -83,6 +85,31 @@ Deno.test("parseCharges : provision / charges / dont X € de charges", () => {
   assertEquals(parseCharges("charges comprises 929 €"), null); // 929 = loyer, pas charges
   assertEquals(parseCharges("Loyer hors charges : 760 €"), null); // 760 = loyer HC, pas charges
   assertEquals(parseCharges("aucune mention"), null);
+});
+
+Deno.test("mergeCharges : fusion partielles + markdowns detail", () => {
+  const partielles = [
+    { url: "1", titre: "T2", typologie: "T2", nb_pieces: 2, surface: 50, loyer_cc: 900, charges: null, loyer_hc: null, prix_m2_cc: 18, prix_m2_hc: null },
+    { url: "2", titre: "T3", typologie: "T3", nb_pieces: 3, surface: 60, loyer_cc: 1200, charges: null, loyer_hc: null, prix_m2_cc: 20, prix_m2_hc: null },
+  ];
+  const m = mergeCharges(partielles, ["Charges forfaitaires 50 €/mois", "pas de charges affichees"]);
+  assertEquals(m[0].charges, 50);
+  assertEquals(m[0].loyer_hc, 850); // 900 - 50
+  assertEquals(m[0].prix_m2_hc, 17); // 850 / 50
+  assertEquals(m[1].charges, null); // introuvable -> reste null
+  assertEquals(m[1].loyer_hc, null);
+  assertEquals(m[1].prix_m2_hc, null);
+});
+
+Deno.test("synthese : ponderation CC (toutes) et HC (seulement charges connues)", () => {
+  const annonces = [
+    { surface: 50, typologie: "T2", loyer_cc: 900, loyer_hc: 850, prix_m2_cc: 18, prix_m2_hc: 17 },
+    { surface: 40, typologie: "T2", loyer_cc: 800, loyer_hc: null, prix_m2_cc: 20, prix_m2_hc: null },
+  ];
+  const s = synthesize(annonces, "location");
+  assertEquals(s.parTypologie.T2!.prix_m2_cc_pondere, 18.89); // 1700/90
+  assertEquals(s.parTypologie.T2!.prix_m2_hc_pondere, 17); // 850/50 (seule annonce avec HC)
+  assertEquals(s.parTypologie.T2!.nb_avec_hc, 1);
 });
 
 const MD = `# 1 716 annonces de location à Bordeaux
