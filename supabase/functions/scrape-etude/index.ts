@@ -46,7 +46,7 @@ interface ReqBody {
   quartier?: string;
   transaction?: Transaction;
   maxItems?: number;
-  natures?: string; // override du filtre SeLoger (2 = neuf, "1,2" = neuf+ancien)
+  natures?: string; // filtre SeLoger : "1,2" (defaut, neuf+ancien) ou "2" (neuf seul, rare)
 }
 
 function json(body: unknown, status = 200): Response {
@@ -131,7 +131,7 @@ Deno.serve(async (req: Request) => {
   const quartier = (body.quartier || "").trim();
   const transaction: Transaction = body.transaction === "vente" ? "vente" : "location";
   const maxItems = Math.min(Math.max(Math.round(body.maxItems ?? 30), 1), 60);
-  const natures = (body.natures || "2").trim(); // 2 = neuf
+  const natures = (body.natures || "1,2").trim(); // neuf + ancien (neuf seul trop rare)
 
   if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
 
@@ -163,7 +163,7 @@ Deno.serve(async (req: Request) => {
       return json({
         ville: geo.nom, quartier: quartier || null, transaction, searchUrl, insee: geo.insee, ci,
         annoncesTrouvees: 0, annoncesRetenues: 0, inserted: 0,
-        message: "Aucune annonce trouvee pour ces criteres (essayez natures='1,2' ou une autre transaction).",
+        message: "Aucune annonce trouvee pour ces criteres (essayez une autre ville/transaction ou augmentez maxItems).",
         parTypologie: {}, global: null,
       });
     }

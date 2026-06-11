@@ -21,7 +21,11 @@ Paramètres du body :
 | `quartier`   | `null`       | libellé quartier (stocké ; filtrage SeLoger limité)    |
 | `transaction`| `location`   | `location` (Rent) ou `vente` (Buy)                     |
 | `maxItems`   | `30`         | nb max d'annonces (1–60)                               |
-| `natures`    | `2`          | filtre SeLoger : `2`=neuf, `1,2`=neuf+ancien           |
+| `natures`    | `1,2`        | filtre SeLoger : `1,2`=neuf+ancien (neuf seul `2` est trop rare) |
+
+La ville est résolue en code place SeLoger (`ci`, ex Bordeaux `330063`) via
+l'autocomplete SeLoger. L'actor liste renvoie l'URL dans `permalink` ; l'actor
+détail fournit les charges (`flatRateCharges`, parfois absentes → loyer HC laissé à `null`).
 
 ## Secrets
 

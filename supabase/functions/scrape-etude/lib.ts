@@ -41,10 +41,11 @@ export function buildSearchUrl(ci: string | number, transaction: Transaction, na
   const dist = transaction === "vente" ? "Buy" : "Rent";
   const projects = transaction === "vente" ? "2" : "1";
   const places = encodeURIComponent(JSON.stringify([{ inseeCodes: [Number(ci)] }]));
-  // types=1,2 : appartement + maison ; natures=2 : neuf
+  // types=1,2 : appartement + maison ; natures=1,2 : neuf + ancien
+  // Format confirme cote API Apify (pas de parametre sort).
   return `https://www.seloger.com/list.htm?projects=${projects}&types=1,2` +
     `&natures=${natures}&places=${places}&distributionTypes=${dist}` +
-    `&enterprise=0&qsVersion=1.0&sort=d_dt_crea`;
+    `&enterprise=0&qsVersion=1.0`;
 }
 
 // Nettoie une annonce detaillee Apify -> ligne `etudes_marche`, ou null si rejetee.
@@ -66,12 +67,25 @@ export function cleanDetail(
   if (!price || price <= 0) return null;
 
   const rooms = num(d?.rooms);
-  const charges = transaction === "location" ? (num(d?.flatRateCharges) ?? 0) : null;
-  const loyer_cc = transaction === "location" ? price : null;
-  const loyer_hc = transaction === "location" ? price - (charges ?? 0) : null;
+
+  // En location, le prix SeLoger est charges comprises (CC). Les charges
+  // forfaitaires (flatRateCharges) sont parfois absentes : dans ce cas on
+  // laisse charges / loyer_hc a null (le loyer CC reste exploitable).
+  let charges: number | null = null;
+  let loyer_cc: number | null = null;
+  let loyer_hc: number | null = null;
+  if (transaction === "location") {
+    loyer_cc = price;
+    const c = num(d?.flatRateCharges);
+    if (c !== null) {
+      charges = c;
+      loyer_hc = round(price - c);
+    }
+  }
+
   const prix_m2_cc = round(price / surface);
-  const prix_m2_hc = transaction === "location"
-    ? round((loyer_hc as number) / surface)
+  const prix_m2_hc: number | null = transaction === "location"
+    ? (loyer_hc !== null ? round(loyer_hc / surface) : null)
     : round(price / surface);
 
   return {
@@ -90,8 +104,8 @@ export function cleanDetail(
     prix_m2_cc,
     prix_m2_hc,
     dpe: d?.energyBalance || null,
-    nature: d?.propertyNature || null,
-    url: d?.permalink || null,
+    nature: d?.propertyNature || d?.nature || null,
+    url: d?.permalink || d?.url || null,
     source: "seloger",
     titre: title || null,
     scraped_at: scrapedAt,
@@ -105,29 +119,47 @@ export function synthesize(rows: CleanRow[], transaction: Transaction) {
   const calc = (arr: CleanRow[]) => {
     const n = arr.length;
     if (!n) return null;
-    let sumSurf = 0, sumCC = 0, sumHC = 0, sumPm2CC = 0, sumPm2HC = 0;
+    // Sommes separees pour CC et HC : le HC peut manquer (charges absentes),
+    // on ne ponderise alors que sur les surfaces des annonces qui l'ont.
+    let sumSurf = 0;
+    let sumCC = 0, sumSurfCC = 0;
+    let sumHC = 0, sumSurfHC = 0;
+    let sumPm2CC = 0, nPm2CC = 0;
+    let sumPm2HC = 0, nPm2HC = 0;
     for (const r of arr) {
       sumSurf += r.surface;
-      if (transaction === "location") {
-        sumCC += r.loyer_cc ?? 0;
-        sumHC += r.loyer_hc ?? 0;
-      } else {
-        // vente : pondere le prix de vente (prix_m2 * surface = prix)
-        sumCC += r.prix_m2_cc * r.surface;
-        sumHC += r.prix_m2_hc * r.surface;
+      // valeur CC : loyer CC (location) ou prix de vente (= prix_m2 * surface)
+      const ccVal = transaction === "location" ? r.loyer_cc : r.prix_m2_cc * r.surface;
+      if (ccVal != null) {
+        sumCC += ccVal;
+        sumSurfCC += r.surface;
       }
-      sumPm2CC += r.prix_m2_cc;
-      sumPm2HC += r.prix_m2_hc ?? r.prix_m2_cc;
+      // valeur HC : loyer HC (location, si dispo) ou prix de vente
+      const hcVal = transaction === "location" ? r.loyer_hc : r.prix_m2_cc * r.surface;
+      if (hcVal != null) {
+        sumHC += hcVal;
+        sumSurfHC += r.surface;
+      }
+      if (r.prix_m2_cc != null) {
+        sumPm2CC += r.prix_m2_cc;
+        nPm2CC++;
+      }
+      if (r.prix_m2_hc != null) {
+        sumPm2HC += r.prix_m2_hc;
+        nPm2HC++;
+      }
     }
     return {
       nb_annonces: n,
       surface_moyenne: round(sumSurf / n, 1),
       // prix/m2 PONDERE PAR SURFACE = somme(loyers ou prix) / somme(surfaces)
-      prix_m2_cc_pondere: round(sumCC / sumSurf),
-      prix_m2_hc_pondere: round(sumHC / sumSurf),
+      prix_m2_cc_pondere: sumSurfCC > 0 ? round(sumCC / sumSurfCC) : null,
+      prix_m2_hc_pondere: sumSurfHC > 0 ? round(sumHC / sumSurfHC) : null,
       // moyenne simple des prix/m2 (pour comparaison)
-      prix_m2_cc_moyen: round(sumPm2CC / n),
-      prix_m2_hc_moyen: round(sumPm2HC / n),
+      prix_m2_cc_moyen: nPm2CC > 0 ? round(sumPm2CC / nPm2CC) : null,
+      prix_m2_hc_moyen: nPm2HC > 0 ? round(sumPm2HC / nPm2HC) : null,
+      // nb d'annonces avec loyer hors charges exploitable (charges connues)
+      nb_avec_hc: nPm2HC,
     };
   };
 

@@ -45,6 +45,22 @@ Deno.test("cleanDetail : location calcule loyer_hc et prix/m2", () => {
   assertEquals(r.source, "seloger");
 });
 
+Deno.test("cleanDetail : location sans flatRateCharges -> charges/HC null, CC exploitable", () => {
+  const r = cleanDetail(
+    { title: "T3 lumineux", rooms: 3, livingArea: 60, price: 1200, city: "Bordeaux", permalink: "https://x/2" },
+    "location",
+    "",
+    GEO,
+    AT,
+  )!;
+  assertEquals(r.loyer_cc, 1200);
+  assertEquals(r.charges, null);
+  assertEquals(r.loyer_hc, null);
+  assertEquals(r.prix_m2_cc, 20); // 1200/60
+  assertEquals(r.prix_m2_hc, null);
+  assertEquals(r.url, "https://x/2"); // lit permalink
+});
+
 Deno.test("cleanDetail : rejette colocation / chambre de service", () => {
   assertEquals(cleanDetail({ title: "Chambre en colocation", rooms: 1, livingArea: 12, price: 400 }, "location", "", GEO, AT), null);
   assertEquals(cleanDetail({ title: "Chambre de service", rooms: 1, livingArea: 9, price: 350 }, "location", "", GEO, AT), null);
@@ -74,6 +90,23 @@ Deno.test("synthese : prix/m2 pondere par surface (location)", () => {
   assertEquals(s.global!.nb_annonces, 3);
   assertEquals(s.global!.prix_m2_cc_pondere, round2(2250 / 110)); // 20.45
   assertEquals(s.global!.prix_m2_hc_pondere, round2(2130 / 110)); // 19.36
+});
+
+Deno.test("synthese : HC pondere sur les seules annonces avec charges connues", () => {
+  const rows = [
+    // T2 avec charges -> HC dispo
+    cleanDetail({ title: "T2", rooms: 2, livingArea: 50, price: 1000, flatRateCharges: 100 }, "location", "", GEO, AT)!,
+    // T2 sans charges -> CC seul, HC null
+    cleanDetail({ title: "T2", rooms: 2, livingArea: 30, price: 700 }, "location", "", GEO, AT)!,
+  ];
+  const s = synthesize(rows, "location");
+  const t2 = s.parTypologie.T2!;
+  assertEquals(t2.nb_annonces, 2);
+  assertEquals(t2.nb_avec_hc, 1);
+  // CC pondere sur les 2 : (1000+700)/(50+30) = 1700/80 = 21.25
+  assertEquals(t2.prix_m2_cc_pondere, 21.25);
+  // HC pondere sur la seule annonce avec charges : 900/50 = 18
+  assertEquals(t2.prix_m2_hc_pondere, 18);
 });
 
 Deno.test("synthese : vente pondere le prix de vente", () => {
