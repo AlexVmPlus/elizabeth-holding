@@ -47,6 +47,11 @@ const CORS: Record<string, string> = {
 
 const FIRECRAWL_URL = "https://api.firecrawl.dev/v2/scrape";
 const MAX_PAGES = 4; // economise les credits Firecrawl (4 x 25 = 100 annonces)
+const CACHE_DAYS = 7; // duree de validite du cache Supabase
+
+// COUT FIRECRAWL : 1 etude ~= 1 (page liste) + maxItems (details).
+// 1000 credits gratuits/mois ~= 30 etudes a maxItems=30. Le cache 7 jours rend
+// gratuites les re-etudes d'une meme ville dans la semaine.
 
 interface ReqBody {
   ville?: string;
@@ -56,7 +61,14 @@ interface ReqBody {
   neufOnly?: boolean;
   anneeMin?: number | string; // filtre annee (best-effort post-recuperation)
   maxItems?: number;
-  withDetails?: boolean; // si true : scrape chaque detail pour les charges (couteux)
+  withDetails?: boolean; // scrape detail pour les charges reelles — TRUE par defaut
+  forceRefresh?: boolean; // ignore le cache 7 jours et re-scrape
+}
+
+interface FcOpts {
+  formats?: unknown[];
+  waitFor?: number;
+  timeout?: number;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -87,13 +99,15 @@ async function resolveCity(ville: string) {
   };
 }
 
-// --- Firecrawl : scrape une URL (markdown + links, JS rendu via waitFor) -----
-async function firecrawl(url: string, apiKey: string): Promise<Record<string, unknown>> {
+// --- Firecrawl : scrape une URL (JS rendu via waitFor OBLIGATOIRE) -----------
+async function firecrawl(url: string, apiKey: string, opts: FcOpts = {}): Promise<Record<string, unknown>> {
+  const formats = opts.formats ?? ["markdown", "links"];
+  const waitFor = opts.waitFor ?? 6000;
+  const timeout = opts.timeout ?? 45000;
   const r = await fetch(FIRECRAWL_URL, {
     method: "POST",
     headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    // waitFor 6000 OBLIGATOIRE : sans, les annonces (chargees en JS) sont absentes.
-    body: JSON.stringify({ url, formats: ["markdown", "links"], waitFor: 6000, timeout: 45000 }),
+    body: JSON.stringify({ url, formats, waitFor, timeout }),
   });
   if (!r.ok) {
     const t = await r.text();
@@ -102,6 +116,44 @@ async function firecrawl(url: string, apiKey: string): Promise<Record<string, un
   const j = await r.json();
   if (!j?.success) throw new Error(`Firecrawl success=false: ${JSON.stringify(j?.error || j).slice(0, 200)}`);
   return (j.data || {}) as Record<string, unknown>;
+}
+
+// --- Cache : lignes etudes_marche de la meme demande, < CACHE_DAYS jours ------
+// deno-lint-ignore no-explicit-any
+async function fetchCache(supaUrl: string, key: string, ville: string, quartier: string, transaction: Transaction): Promise<any[]> {
+  const since = new Date(Date.now() - CACHE_DAYS * 86400 * 1000).toISOString();
+  let q = `${supaUrl}/rest/v1/etudes_marche?source=eq.firecrawl` +
+    `&transaction=eq.${encodeURIComponent(transaction)}` +
+    `&ville=eq.${encodeURIComponent(ville)}` +
+    `&scraped_at=gt.${encodeURIComponent(since)}` +
+    `&select=*&order=scraped_at.desc`;
+  if (quartier) q += `&quartier=eq.${encodeURIComponent(quartier)}`;
+  const r = await fetch(q, { headers: { "apikey": key, "Authorization": `Bearer ${key}` } });
+  if (!r.ok) return [];
+  const rows = await r.json();
+  return Array.isArray(rows) ? rows : [];
+}
+
+// Ligne (DB ou fraiche) -> objet annonce pour la pre-fiche.
+// deno-lint-ignore no-explicit-any
+function toAnnonce(r: any) {
+  return {
+    titre: r.titre,
+    typologie: r.typologie,
+    nb_pieces: r.nb_pieces,
+    surface: r.surface,
+    loyer_cc: r.loyer_cc,
+    charges: r.charges,
+    loyer_hc: r.loyer_hc,
+    prix_m2_cc: r.prix_m2_cc,
+    prix_m2_hc: r.prix_m2_hc,
+    dpe: r.dpe ?? null,
+    nature: r.nature ?? null,
+    quartier: r.quartier,
+    ville: r.ville,
+    code_postal: r.code_postal,
+    url: r.url,
+  };
 }
 
 // ============================================================================
@@ -123,7 +175,8 @@ Deno.serve(async (req: Request) => {
   const typoFilter = /^T[1-6]$/.test(String(body.typologie || "")) ? String(body.typologie) : null;
   const neufOnly = body.neufOnly === true;
   const anneeMin = num(body.anneeMin);
-  const withDetails = body.withDetails === true;
+  const withDetails = body.withDetails !== false; // TRUE par defaut (charges reelles)
+  const forceRefresh = body.forceRefresh === true;
 
   if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
 
@@ -141,6 +194,43 @@ Deno.serve(async (req: Request) => {
     if (!seloCode) return json({ error: "ville introuvable (code SeLoger non resolu)" }, 404);
     console.log(`[scrape-etude] INSEE ${city.citycode} -> SeLoger ${seloCode} (${city.nom})`);
 
+    // Filtres post-recuperation, appliques aux annonces FRAICHES ou en CACHE.
+    // deno-lint-ignore no-explicit-any
+    const applyFilters = (arr: any[]) => {
+      let out = arr;
+      if (typoFilter) out = out.filter((r) => matchesTypologie(r.nb_pieces, typoFilter));
+      if (neufOnly) out = out.filter((r) => matchesNeuf(r.titre));
+      if (anneeMin) {
+        const f = out.filter((r) => matchesAnnee(r.titre, anneeMin));
+        out = f.length ? f : out; // best-effort : ne vide jamais tout
+      }
+      return out;
+    };
+
+    // 1bis. CACHE 7 jours : sert une etude recente de la meme demande (0 credit).
+    if (!forceRefresh) {
+      const cached = await fetchCache(SUPABASE_URL, SERVICE_KEY, city.nom, quartier, transaction);
+      if (cached.length) {
+        // ne garder que le DERNIER scrape (meme scraped_at) -> pas de doublons
+        const lastTs = String(cached[0].scraped_at);
+        const lastBatch = applyFilters(cached.filter((r) => String(r.scraped_at) === lastTs));
+        if (lastBatch.length >= maxItems || lastBatch.length >= 15) {
+          console.log(`[scrape-etude] CACHE HIT : ${lastBatch.length} annonces du ${lastTs} (0 credit)`);
+          const synthC = synthesize(lastBatch as Row[], transaction);
+          return json({
+            ville: city.nom, quartier: quartier || null, transaction, insee: city.citycode, seloCode,
+            scrapedAt: lastTs, fromCache: true, creditsEstimes: 0,
+            filtres: { typologie: typoFilter, neufOnly, anneeMin, maxItems },
+            annoncesTrouvees: lastBatch.length, annoncesRetenues: lastBatch.length, inserted: 0,
+            annonces: lastBatch.map(toAnnonce),
+            parTypologie: synthC.parTypologie, global: synthC.global,
+          });
+        }
+      }
+    }
+
+    let credits = 0; // nb d'appels Firecrawl effectues (= credits consommes)
+
     // 2. Scrape des pages liste via Firecrawl
     const pages = Math.min(Math.ceil(maxItems / 25), MAX_PAGES);
     const raw: RawAnnonce[] = [];
@@ -151,6 +241,7 @@ Deno.serve(async (req: Request) => {
       console.log(`[scrape-etude] Firecrawl page ${p}/${pages} : ${url}`);
       let data: Record<string, unknown>;
       try {
+        credits++;
         data = await firecrawl(url, FIRECRAWL_API_KEY);
       } catch (e) {
         console.error(`[scrape-etude] page ${p} echec :`, e instanceof Error ? e.message : e);
@@ -189,23 +280,19 @@ Deno.serve(async (req: Request) => {
       .map((a) => annonceToRow(a, ctx))
       .filter((r): r is Row => r !== null);
 
-    // 4. Filtres post-recuperation
-    if (typoFilter) rows = rows.filter((r) => matchesTypologie(r.nb_pieces, typoFilter));
-    if (neufOnly) rows = rows.filter((r) => matchesNeuf(r.titre));
-    if (anneeMin) {
-      const filtered = rows.filter((r) => matchesAnnee(r.titre, anneeMin));
-      // Securite : le filtre annee est best-effort ; s'il vide tout, on l'ignore.
-      if (filtered.length) rows = filtered;
-      else console.warn(`[scrape-etude] filtre annee >= ${anneeMin} : aucun indice -> ignore (best-effort)`);
-    }
+    // 4. Filtres post-recuperation (typologie / neuf / annee best-effort)
+    rows = applyFilters(rows);
     console.log(`[scrape-etude] apres filtres : ${rows.length} annonces`);
 
-    // 5. (Optionnel) scrape detail pour les charges -> loyer_hc
-    if (withDetails && transaction === "location") {
+    // 5. Charges reelles : scrape la page detail de chaque annonce (1 credit/annonce).
+    //    `rows` est deja <= maxItems -> on ne depasse JAMAIS maxItems appels detail.
+    if (withDetails && transaction === "location" && rows.length) {
+      console.log(`[scrape-etude] Scraping details de ${rows.length} annonces (${rows.length} credits)`);
       for (const r of rows) {
         if (!r.url || r.loyer_cc == null) continue;
         try {
-          const d = await firecrawl(r.url, FIRECRAWL_API_KEY);
+          credits++;
+          const d = await firecrawl(r.url, FIRECRAWL_API_KEY, { formats: ["markdown"], waitFor: 4000, timeout: 35000 });
           const md = typeof d.markdown === "string" ? d.markdown : "";
           const charges = parseCharges(md);
           if (charges != null && charges < r.loyer_cc) {
@@ -213,14 +300,15 @@ Deno.serve(async (req: Request) => {
             r.loyer_hc = round(r.loyer_cc - charges);
             r.prix_m2_hc = round(r.loyer_hc / r.surface);
           }
-        } catch (_) { /* on continue sans les charges */ }
-        await sleep(300);
+        } catch (_) { /* on continue sans les charges pour cette annonce */ }
+        await sleep(350);
       }
     }
 
     if (rows.length === 0) {
       return json({
         ville: city.nom, quartier: quartier || null, transaction, insee: city.citycode, seloCode, searchUrl: lastUrl,
+        scrapedAt, fromCache: false, creditsEstimes: credits,
         filtres: { typologie: typoFilter, neufOnly, anneeMin, maxItems },
         annoncesTrouvees: rawUnique.length, annoncesRetenues: 0, inserted: 0,
         message: "Aucune annonce exploitable (essayez une autre ville/transaction, retirez des filtres ou augmentez maxItems).",
@@ -248,23 +336,6 @@ Deno.serve(async (req: Request) => {
 
     // 7. Synthese + liste detaillee (pour la pre-fiche)
     const synth = synthesize(rows, transaction);
-    const annonces = rows.map((r) => ({
-      titre: r.titre,
-      typologie: r.typologie,
-      nb_pieces: r.nb_pieces,
-      surface: r.surface,
-      loyer_cc: r.loyer_cc,
-      charges: r.charges,
-      loyer_hc: r.loyer_hc,
-      prix_m2_cc: r.prix_m2_cc,
-      prix_m2_hc: r.prix_m2_hc,
-      dpe: null,
-      nature: null,
-      quartier: r.quartier,
-      ville: r.ville,
-      code_postal: r.code_postal,
-      url: r.url,
-    }));
 
     return json({
       ville: city.nom,
@@ -274,11 +345,13 @@ Deno.serve(async (req: Request) => {
       seloCode,
       searchUrl: lastUrl,
       scrapedAt,
+      fromCache: false,
+      creditsEstimes: credits,
       filtres: { typologie: typoFilter, neufOnly, anneeMin, maxItems },
       annoncesTrouvees: rawUnique.length,
       annoncesRetenues: rows.length,
       inserted,
-      annonces,
+      annonces: rows.map(toAnnonce),
       parTypologie: synth.parTypologie,
       global: synth.global,
     });

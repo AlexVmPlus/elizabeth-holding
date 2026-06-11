@@ -23,8 +23,23 @@ Paramètres du body :
 | `typologie`  | —            | `T1`..`T6` (Studio/T1=1 pièce … T6=6 pièces et +) — filtre post-récup |
 | `neufOnly`   | `false`      | ne garde que les annonces dont le titre mentionne neuf/récent |
 | `anneeMin`   | —            | filtre année **best-effort** sur le titre (neuf/récent ou année ≥ min) |
-| `maxItems`   | `25`         | nb max d'annonces (1–100 ; 25 par page, **4 pages max**) |
-| `withDetails`| `false`      | si `true`, scrape la page détail de chaque annonce pour les charges (coûteux) |
+| `maxItems`   | `30`         | nb max d'annonces (1–100 ; 25 par page, **4 pages max**) |
+| `withDetails`| `true`       | scrape la page détail de **chaque** annonce pour les charges réelles (1 crédit/annonce) |
+| `forceRefresh`| `false`     | ignore le cache 7 jours et re-scrape |
+
+### Cache 7 jours
+
+Avant tout scraping, la fonction cherche dans `etudes_marche` une étude
+`source='firecrawl'` de la même `ville`/`transaction` (et `quartier` si fourni)
+datant de moins de 7 jours. Si le dernier scrape contient ≥ `maxItems` (ou ≥ 15)
+annonces, elle renvoie ces lignes recalculées **sans appel Firecrawl** :
+`{ fromCache: true, creditsEstimes: 0 }`. `forceRefresh:true` force un re-scrape.
+
+### Coût Firecrawl
+
+1 étude ≈ **1 (liste) + maxItems (détails)** crédits. 1000 crédits gratuits/mois
+≈ 30 études à `maxItems=30`. Le cache rend gratuites les ré-études d'une même
+ville dans la semaine. La sortie renvoie `creditsEstimes` (nb d'appels réels).
 
 ### Fonctionnement
 

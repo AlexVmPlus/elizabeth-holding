@@ -90,10 +90,21 @@ export function parsePieces(text: string): number | null {
   return null;
 }
 
-// Charges (page detail) : "provision pour charges 80 €", "charges : 80 €".
+// Charges mensuelles (page detail SeLoger). Gere les formulations FR courantes :
+//  - "dont 80 € de charges", "80 € de charges"          (montant AVANT "charges")
+//  - "charges : 80 €", "charges 80 €/mois",
+//    "provision pour charges 80 €"                        (montant APRES "charges")
+// IMPORTANT : ne PAS confondre avec "charges comprises 929 €" (929 = loyer, pas
+// les charges) -> on n'autorise que des espaces/":" entre "charges" et le montant.
+const NUM_RE = `(\\d[\\d${SP}]{0,6})`;
 export function parseCharges(text: string): number | null {
   if (!text) return null;
-  const m = text.match(new RegExp(`(?:charges|provision)[^\\d€]{0,30}(\\d[\\d${SP}]{0,6})\\s*€`, "i"));
+  // 1. "... 95 € de charges" / "dont 95 € de charges" (montant AVANT, avec "de")
+  let m = text.match(new RegExp(`${NUM_RE}\\s*€\\s*de\\s+charges`, "i"));
+  // 2. "charges (:) 80 €" (montant APRES) — mais PAS "hors/sans charges 760 €"
+  if (!m) {
+    m = text.match(new RegExp(`(?<!hors[ ${SP}])(?<!sans[ ${SP}])charges\\s*:?\\s*${NUM_RE}\\s*€`, "i"));
+  }
   if (!m) return null;
   const n = parseInt(m[1].replace(new RegExp(`[${SP}]`, "g"), ""), 10);
   return isFinite(n) && n > 0 ? n : null;

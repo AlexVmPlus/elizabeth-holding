@@ -75,9 +75,13 @@ Deno.test("parsePieces : pieces / studio / T2", () => {
   assertEquals(parsePieces("rien"), null);
 });
 
-Deno.test("parseCharges : provision / charges", () => {
+Deno.test("parseCharges : provision / charges / dont X € de charges", () => {
   assertEquals(parseCharges("Provision pour charges : 80 €"), 80);
   assertEquals(parseCharges("Charges 120 €/mois"), 120);
+  assertEquals(parseCharges("dont 95 € de charges"), 95);
+  assertEquals(parseCharges("Loyer 929 € charges comprises"), null); // pas un montant de charges
+  assertEquals(parseCharges("charges comprises 929 €"), null); // 929 = loyer, pas charges
+  assertEquals(parseCharges("Loyer hors charges : 760 €"), null); // 760 = loyer HC, pas charges
   assertEquals(parseCharges("aucune mention"), null);
 });
 
