@@ -1,32 +1,37 @@
 // ============================================================================
-// Edge Function : scrape-etude  (Elizabeth Holding)
+// Edge Function : scrape-etude  (Elizabeth Holding) — source : FIRECRAWL
 // ----------------------------------------------------------------------------
-// POST { ville, quartier?, transaction? ("location"|"vente"), maxItems?, natures? }
+// POST { ville, quartier?, transaction?, typologie?, neufOnly?, anneeMin?,
+//        maxItems?, withDetails? }
 //
-// 1. Geocode la ville (geo.api.gouv.fr) -> code INSEE + centre + code postal.
-// 2. Construit une URL de recherche SeLoger filtree NEUF (natures=2) pour la
-//    ville et la transaction (location par defaut).
-// 3. Lance l'actor Apify LISTE (par search-url) -> URLs d'annonces.
-// 4. Lance l'actor Apify DETAIL (par items-urls) -> champs detailles.
-// 5. Nettoie chaque annonce (surface > 0, hors colocation / chambre de service),
-//    calcule loyer_hc, prix_m2_cc, prix_m2_hc, deduit la typologie T1..T6.
-// 6. Insere les annonces dans la table `etudes_marche` (service_role).
-// 7. Renvoie une synthese : par typologie T1..T6 (prix/m2 PONDERE PAR SURFACE,
-//    en charges comprises ET hors charges, nb annonces, surface moyenne) + global.
+// 1. Resout le code INSEE de la ville (api-adresse.data.gouv.fr) -> code SeLoger.
+// 2. Scrape les pages liste SeLoger (list.htm) via Firecrawl (waitFor 6000 ms
+//    OBLIGATOIRE : les annonces sont chargees en JS). Max 4 pages (25/page).
+// 3. Parse le markdown -> annonces (loyer CC, surface, pieces, url, titre).
+//    Fallback regex si l'extraction json de Firecrawl est vide.
+// 4. Filtre typologie / neuf / annee (best-effort), calcule prix/m2.
+// 5. (Optionnel withDetails) scrape la page detail pour les charges -> loyer_hc.
+// 6. Insere dans `etudes_marche` (source='firecrawl') + synthese ponderee.
 //
 // SECRETS (jamais en dur) :
-//   - APIFY_TOKEN                  -> a definir via `supabase secrets set`
+//   - FIRECRAWL_API_KEY            -> a definir via `supabase secrets set`
 //   - SUPABASE_URL                 -> injecte automatiquement par la plateforme
 //   - SUPABASE_SERVICE_ROLE_KEY    -> injecte automatiquement par la plateforme
 // ============================================================================
 
 import {
-  buildSearchUrl,
-  cleanDetail,
-  type GeoInfo,
+  annonceToRow,
+  buildListUrl,
+  matchesAnnee,
+  matchesNeuf,
+  matchesTypologie,
   num,
-  passesFilters,
-  roomsParam,
+  parseAnnonces,
+  parseCharges,
+  type RawAnnonce,
+  type Row,
+  round,
+  selogerCode,
   synthesize,
   type Transaction,
 } from "./lib.ts";
@@ -40,19 +45,18 @@ const CORS: Record<string, string> = {
   "Vary": "Origin",
 };
 
-// --- Actors Apify -----------------------------------------------------------
-const APIFY_LIST_ACTOR = "dqFjeUv7Nrv7lRatk"; // azzouzana/seloger-mass-products-scraper-by-search-url
-const APIFY_DETAIL_ACTOR = "sY13vKfwmbpTAtyG2"; // azzouzana/seloger-mass-products-scraper-by-items-urls
+const FIRECRAWL_URL = "https://api.firecrawl.dev/v2/scrape";
+const MAX_PAGES = 4; // economise les credits Firecrawl (4 x 25 = 100 annonces)
 
 interface ReqBody {
   ville?: string;
   quartier?: string;
   transaction?: Transaction;
+  typologie?: string; // "T1".."T6" ; vide = toutes
+  neufOnly?: boolean;
+  anneeMin?: number | string; // filtre annee (best-effort post-recuperation)
   maxItems?: number;
-  natures?: string; // filtre SeLoger : "1,2" (defaut, neuf+ancien) ou "2" (neuf seul, rare)
-  // Filtres optionnels
-  typologie?: string; // "T1".."T6" ; vide = toutes (-> param SeLoger rooms)
-  neufOnly?: boolean; // ne garder que les annonces isNew=true (post-traitement)
+  withDetails?: boolean; // si true : scrape chaque detail pour les charges (couteux)
 }
 
 function json(body: unknown, status = 200): Response {
@@ -62,63 +66,42 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-// --- Geocode ville -> INSEE + centre (API gratuite geo.api.gouv.fr) ---------
-async function geocodeCity(ville: string): Promise<GeoInfo | null> {
-  const u = `https://geo.api.gouv.fr/communes?nom=${encodeURIComponent(ville)}` +
-    `&fields=code,centre,codesPostaux,nom&boost=population&limit=1`;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// --- Resout la ville -> code INSEE + code postal + centre (api-adresse) ------
+async function resolveCity(ville: string) {
+  const u = `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(ville)}&type=municipality&limit=1`;
   const r = await fetch(u);
   if (!r.ok) return null;
-  const arr = await r.json();
-  if (!Array.isArray(arr) || arr.length === 0) return null;
-  const c = arr[0];
-  const coords = c?.centre?.coordinates ?? null; // [lng, lat]
+  const j = await r.json();
+  const f = j?.features?.[0];
+  if (!f) return null;
+  const p = f.properties || {};
+  const coords = f.geometry?.coordinates ?? null; // [lng, lat]
   return {
-    insee: String(c.code),
-    nom: String(c.nom),
-    lng: coords ? coords[0] : null,
+    nom: String(p.city || p.name || ville),
+    citycode: p.citycode ? String(p.citycode) : null,
+    codePostal: p.postcode ? String(p.postcode) : null,
     lat: coords ? coords[1] : null,
-    codePostal: Array.isArray(c.codesPostaux) && c.codesPostaux.length ? String(c.codesPostaux[0]) : null,
+    lng: coords ? coords[0] : null,
   };
 }
 
-// --- Resout la ville -> code place SeLoger (ci) via l'autocomplete SeLoger ---
-// Renvoie le code "ci" (ex Bordeaux 330063) attendu dans le parametre places.
-// Fallback : derive le ci depuis l'INSEE (dept + commune sur 4 chiffres).
-async function selogerCi(ville: string, fallbackInsee: string): Promise<string> {
-  try {
-    const u = `https://autocomplete.svc.groupe-seloger.com/auto/complete/0/Ville/6?text=${encodeURIComponent(ville)}`;
-    const r = await fetch(u, { headers: { "User-Agent": "Mozilla/5.0" } });
-    if (r.ok) {
-      const arr = await r.json();
-      if (Array.isArray(arr)) {
-        const hit = arr.find((x) => x?.Type === "Ville" && x?.Params?.ci);
-        if (hit) return String(hit.Params.ci);
-      }
-    }
-  } catch (_) { /* fallback ci-dessous */ }
-  // Fallback metropole : INSEE 5 chiffres "DDCCC" -> ci "DD" + "CCC".padStart(4,"0")
-  const m = fallbackInsee.match(/^(\d{2})(\d{3})$/);
-  return m ? m[1] + m[2].padStart(4, "0") : fallbackInsee;
-}
-
-// --- Apify : run-sync + recuperation directe du dataset ---------------------
-async function apifyRunSync(
-  actorId: string,
-  input: unknown,
-  token: string,
-): Promise<Array<Record<string, unknown>>> {
-  const u = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}`;
-  const r = await fetch(u, {
+// --- Firecrawl : scrape une URL (markdown + links, JS rendu via waitFor) -----
+async function firecrawl(url: string, apiKey: string): Promise<Record<string, unknown>> {
+  const r = await fetch(FIRECRAWL_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    // waitFor 6000 OBLIGATOIRE : sans, les annonces (chargees en JS) sont absentes.
+    body: JSON.stringify({ url, formats: ["markdown", "links"], waitFor: 6000, timeout: 45000 }),
   });
   if (!r.ok) {
     const t = await r.text();
-    throw new Error(`Apify ${actorId} HTTP ${r.status}: ${t.slice(0, 300)}`);
+    throw new Error(`Firecrawl HTTP ${r.status}: ${t.slice(0, 300)}`);
   }
-  const data = await r.json();
-  return Array.isArray(data) ? data : [];
+  const j = await r.json();
+  if (!j?.success) throw new Error(`Firecrawl success=false: ${JSON.stringify(j?.error || j).slice(0, 200)}`);
+  return (j.data || {}) as Record<string, unknown>;
 }
 
 // ============================================================================
@@ -136,95 +119,134 @@ Deno.serve(async (req: Request) => {
   const ville = (body.ville || "").trim();
   const quartier = (body.quartier || "").trim();
   const transaction: Transaction = body.transaction === "vente" ? "vente" : "location";
-  const maxItems = Math.min(Math.max(Math.round(num(body.maxItems) ?? 30), 1), 60);
-  const natures = (body.natures || "1,2").trim(); // neuf + ancien (neuf seul trop rare)
-
-  // Filtres optionnels : typologie (-> param SeLoger rooms) ; neuf (post-traitement)
-  const typologie = /^T[1-6]$/.test(String(body.typologie || "")) ? String(body.typologie) : null;
+  const maxItems = Math.min(Math.max(Math.round(num(body.maxItems) ?? 25), 1), 100);
+  const typoFilter = /^T[1-6]$/.test(String(body.typologie || "")) ? String(body.typologie) : null;
   const neufOnly = body.neufOnly === true;
+  const anneeMin = num(body.anneeMin);
+  const withDetails = body.withDetails === true;
 
   if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
 
-  const APIFY_TOKEN = Deno.env.get("APIFY_TOKEN");
+  const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
   const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!APIFY_TOKEN) return json({ error: "Secret APIFY_TOKEN manquant (supabase secrets set)" }, 500);
+  if (!FIRECRAWL_API_KEY) return json({ error: "Secret FIRECRAWL_API_KEY manquant (supabase secrets set)" }, 500);
   if (!SUPABASE_URL || !SERVICE_KEY) return json({ error: "Env Supabase (URL / SERVICE_ROLE) absent" }, 500);
 
   try {
-    // 1. Geocode ville -> INSEE + centre
-    const geo = await geocodeCity(ville);
-    if (!geo) return json({ error: `Ville introuvable : ${ville}` }, 404);
+    // 1. Resolution INSEE -> code SeLoger
+    const city = await resolveCity(ville);
+    if (!city || !city.citycode) return json({ error: "ville introuvable" }, 404);
+    const seloCode = selogerCode(city.citycode);
+    if (!seloCode) return json({ error: "ville introuvable (code SeLoger non resolu)" }, 404);
+    console.log(`[scrape-etude] INSEE ${city.citycode} -> SeLoger ${seloCode} (${city.nom})`);
 
-    // 2. Code place SeLoger (ci) + URL de recherche
-    const ci = await selogerCi(ville, geo.insee);
-    const searchUrl = buildSearchUrl(ci, transaction, natures, { rooms: roomsParam(typologie) });
+    // 2. Scrape des pages liste via Firecrawl
+    const pages = Math.min(Math.ceil(maxItems / 25), MAX_PAGES);
+    const raw: RawAnnonce[] = [];
+    let lastUrl = "";
+    for (let p = 1; p <= pages; p++) {
+      const url = buildListUrl(seloCode, transaction, p);
+      lastUrl = url;
+      console.log(`[scrape-etude] Firecrawl page ${p}/${pages} : ${url}`);
+      let data: Record<string, unknown>;
+      try {
+        data = await firecrawl(url, FIRECRAWL_API_KEY);
+      } catch (e) {
+        console.error(`[scrape-etude] page ${p} echec :`, e instanceof Error ? e.message : e);
+        break;
+      }
+      const md = typeof data.markdown === "string" ? data.markdown : "";
+      const pageAnnonces = parseAnnonces(md, data.links);
+      console.log(`[scrape-etude] page ${p} : ${pageAnnonces.length} annonces brutes`);
+      raw.push(...pageAnnonces);
+      if (raw.length >= maxItems) break;
+      if (p < pages) await sleep(400); // petit delai entre les pages
+    }
 
-    // 3. Actor LISTE -> URLs d'annonces (+ set des URLs "neuf" via isNew)
-    const listItems = await apifyRunSync(APIFY_LIST_ACTOR, { startUrl: searchUrl, maxItems }, APIFY_TOKEN);
-    const urls: string[] = [];
-    const newUrls = new Set<string>();
-    for (const it of listItems) {
-      const u = it?.permalink || it?.url;
-      if (typeof u === "string" && u) {
-        urls.push(u);
-        if (it?.isNew === true) newUrls.add(u);
+    // Dedoublonnage global par url + cap maxItems
+    const seen = new Set<string>();
+    const rawUnique = raw
+      .filter((a) => {
+        if (!a.url) return true;
+        if (seen.has(a.url)) return false;
+        seen.add(a.url);
+        return true;
+      })
+      .slice(0, maxItems);
+    console.log(`[scrape-etude] total brut (dedoublonne) : ${rawUnique.length}`);
+
+    // 3. Mapping -> lignes (calcul prix/m2)
+    const scrapedAt = new Date().toISOString();
+    const ctx = {
+      ville: city.nom,
+      quartier: quartier || null,
+      code_postal: city.codePostal,
+      transaction,
+      scrapedAt,
+    };
+    let rows: Row[] = rawUnique
+      .map((a) => annonceToRow(a, ctx))
+      .filter((r): r is Row => r !== null);
+
+    // 4. Filtres post-recuperation
+    if (typoFilter) rows = rows.filter((r) => matchesTypologie(r.nb_pieces, typoFilter));
+    if (neufOnly) rows = rows.filter((r) => matchesNeuf(r.titre));
+    if (anneeMin) {
+      const filtered = rows.filter((r) => matchesAnnee(r.titre, anneeMin));
+      // Securite : le filtre annee est best-effort ; s'il vide tout, on l'ignore.
+      if (filtered.length) rows = filtered;
+      else console.warn(`[scrape-etude] filtre annee >= ${anneeMin} : aucun indice -> ignore (best-effort)`);
+    }
+    console.log(`[scrape-etude] apres filtres : ${rows.length} annonces`);
+
+    // 5. (Optionnel) scrape detail pour les charges -> loyer_hc
+    if (withDetails && transaction === "location") {
+      for (const r of rows) {
+        if (!r.url || r.loyer_cc == null) continue;
+        try {
+          const d = await firecrawl(r.url, FIRECRAWL_API_KEY);
+          const md = typeof d.markdown === "string" ? d.markdown : "";
+          const charges = parseCharges(md);
+          if (charges != null && charges < r.loyer_cc) {
+            r.charges = charges;
+            r.loyer_hc = round(r.loyer_cc - charges);
+            r.prix_m2_hc = round(r.loyer_hc / r.surface);
+          }
+        } catch (_) { /* on continue sans les charges */ }
+        await sleep(300);
       }
     }
-    const uniqueUrls = [...new Set(urls)].slice(0, maxItems);
 
-    if (uniqueUrls.length === 0) {
+    if (rows.length === 0) {
       return json({
-        ville: geo.nom, quartier: quartier || null, transaction, searchUrl, insee: geo.insee, ci,
-        filtres: { typologie, neufOnly, maxItems },
-        annoncesTrouvees: 0, annoncesRetenues: 0, inserted: 0,
-        message: "Aucune annonce trouvee pour ces criteres (essayez une autre ville/transaction ou augmentez maxItems).",
+        ville: city.nom, quartier: quartier || null, transaction, insee: city.citycode, seloCode, searchUrl: lastUrl,
+        filtres: { typologie: typoFilter, neufOnly, anneeMin, maxItems },
+        annoncesTrouvees: rawUnique.length, annoncesRetenues: 0, inserted: 0,
+        message: "Aucune annonce exploitable (essayez une autre ville/transaction, retirez des filtres ou augmentez maxItems).",
         annonces: [], parTypologie: {}, global: null,
       });
     }
 
-    // 4. Actor DETAIL -> champs detailles
-    const detailItems = await apifyRunSync(APIFY_DETAIL_ACTOR, { startUrls: uniqueUrls }, APIFY_TOKEN);
-
-    // 5. Filtres post-traitement (typologie + neuf) + nettoyage
-    const scrapedAt = new Date().toISOString();
-    const rows: NonNullable<ReturnType<typeof cleanDetail>>[] = [];
-    for (const d of detailItems) {
-      if (!passesFilters(d, { typologie })) continue;
-      if (neufOnly) {
-        const u = d?.permalink || d?.url;
-        const isNew = d?.isNew === true || (typeof u === "string" && newUrls.has(u));
-        if (!isNew) continue;
-      }
-      const r = cleanDetail(d, transaction, quartier, geo, scrapedAt);
-      if (!r) continue;
-      rows.push(r);
-    }
-
     // 6. Insertion dans etudes_marche (service_role : bypass RLS)
     let inserted = 0;
-    if (rows.length) {
-      const ins = await fetch(`${SUPABASE_URL}/rest/v1/etudes_marche`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": SERVICE_KEY,
-          "Authorization": `Bearer ${SERVICE_KEY}`,
-          "Prefer": "return=minimal",
-        },
-        body: JSON.stringify(rows),
-      });
-      if (!ins.ok) {
-        const t = await ins.text();
-        return json({
-          error: "Insertion Supabase echouee", detail: t.slice(0, 400),
-          searchUrl, annoncesRetenues: rows.length,
-        }, 500);
-      }
-      inserted = rows.length;
+    const ins = await fetch(`${SUPABASE_URL}/rest/v1/etudes_marche`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SERVICE_KEY,
+        "Authorization": `Bearer ${SERVICE_KEY}`,
+        "Prefer": "return=minimal",
+      },
+      body: JSON.stringify(rows),
+    });
+    if (!ins.ok) {
+      const t = await ins.text();
+      return json({ error: "Insertion Supabase echouee", detail: t.slice(0, 400), annoncesRetenues: rows.length }, 500);
     }
+    inserted = rows.length;
 
-    // 7. Synthese + liste detaillee des annonces retenues (pour la pre-fiche)
+    // 7. Synthese + liste detaillee (pour la pre-fiche)
     const synth = synthesize(rows, transaction);
     const annonces = rows.map((r) => ({
       titre: r.titre,
@@ -236,8 +258,8 @@ Deno.serve(async (req: Request) => {
       loyer_hc: r.loyer_hc,
       prix_m2_cc: r.prix_m2_cc,
       prix_m2_hc: r.prix_m2_hc,
-      dpe: r.dpe,
-      nature: r.nature,
+      dpe: null,
+      nature: null,
       quartier: r.quartier,
       ville: r.ville,
       code_postal: r.code_postal,
@@ -245,15 +267,15 @@ Deno.serve(async (req: Request) => {
     }));
 
     return json({
-      ville: geo.nom,
+      ville: city.nom,
       quartier: quartier || null,
       transaction,
-      insee: geo.insee,
-      ci,
-      searchUrl,
+      insee: city.citycode,
+      seloCode,
+      searchUrl: lastUrl,
       scrapedAt,
-      filtres: { typologie, neufOnly, maxItems },
-      annoncesTrouvees: uniqueUrls.length,
+      filtres: { typologie: typoFilter, neufOnly, anneeMin, maxItems },
+      annoncesTrouvees: rawUnique.length,
       annoncesRetenues: rows.length,
       inserted,
       annonces,

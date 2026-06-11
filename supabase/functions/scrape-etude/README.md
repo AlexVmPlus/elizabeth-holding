@@ -1,14 +1,14 @@
 # Edge Function `scrape-etude`
 
-Scrape SeLoger (neuf) via Apify, calcule des stats de marché pondérées par
-surface, et stocke les annonces dans la table `etudes_marche`.
+Scrape SeLoger via **Firecrawl** (passe le DataDome, gratuit ~1000 pages/mois,
+pas de rate-limit), calcule des stats de marché pondérées par surface, et stocke
+les annonces dans la table `etudes_marche` (`source='firecrawl'`).
 
 ## Appel
 
 ```
 POST https://wywndgujgtyyzzhviagu.supabase.co/functions/v1/scrape-etude
 Content-Type: application/json
-apikey: <cle publishable>
 
 { "ville": "Bordeaux", "quartier": "Saint Jean-Belcier", "transaction": "location" }
 ```
@@ -17,70 +17,50 @@ Paramètres du body :
 
 | champ        | défaut       | description                                            |
 |--------------|--------------|--------------------------------------------------------|
-| `ville`      | (obligatoire)| commune (résolue en code INSEE via geo.api.gouv.fr)    |
-| `quartier`   | `null`       | libellé quartier (stocké ; filtrage SeLoger limité)    |
-| `transaction`| `location`   | `location` (Rent) ou `vente` (Buy)                     |
-| `maxItems`   | `30`         | nb max d'annonces (1–60)                               |
-| `natures`    | `1,2`        | filtre SeLoger : `1,2`=neuf+ancien (neuf seul `2` est trop rare) |
-| `typologie`  | —            | `T1`..`T6` (T1=studio/1 pièce … T6=6 pièces et +) → URL `rooms` |
-| `neufOnly`   | `false`      | si `true`, ne garde que les annonces `isNew=true` (post-traitement) |
+| `ville`      | (obligatoire)| commune → INSEE via `api-adresse.data.gouv.fr` (`type=municipality`) |
+| `quartier`   | `null`       | libellé quartier (stocké tel quel)                     |
+| `transaction`| `location`   | `location` ou `vente`                                  |
+| `typologie`  | —            | `T1`..`T6` (Studio/T1=1 pièce … T6=6 pièces et +) — filtre post-récup |
+| `neufOnly`   | `false`      | ne garde que les annonces dont le titre mentionne neuf/récent |
+| `anneeMin`   | —            | filtre année **best-effort** sur le titre (neuf/récent ou année ≥ min) |
+| `maxItems`   | `25`         | nb max d'annonces (1–100 ; 25 par page, **4 pages max**) |
+| `withDetails`| `false`      | si `true`, scrape la page détail de chaque annonce pour les charges (coûteux) |
 
-Filtres : la `typologie` passe par le param `list.htm` confirmé `rooms`
-(T6 → `rooms=6,7,8,9,10`) **et** est re-vérifiée en post-traitement sur le champ
-`rooms`. `neufOnly` s'appuie sur le champ `isNew` de l'actor LISTE (post-traitement).
+### Fonctionnement
+
+1. **INSEE** : `api-adresse.data.gouv.fr` → `citycode` (ex Bordeaux `33063`).
+   Code SeLoger = on insère un `0` après le département : `33063 → 330063`,
+   `69123 → 690123` (confirmé par tests). `selogerCode()` dans `lib.ts`.
+2. **Firecrawl** : `POST https://api.firecrawl.dev/v2/scrape` avec
+   `formats:["markdown","links"]`, **`waitFor:6000` OBLIGATOIRE** (annonces
+   chargées en JS, sinon 0 résultat), `timeout:45000`.
+3. **Parsing markdown** → annonces (loyer CC, surface, pièces, url, titre).
+4. Filtres typologie / neuf / année, calcul prix/m², insertion, synthèse.
+
+Le loyer en liste est **charges comprises (CC)**. Les charges ne sont récupérées
+que si `withDetails:true` (scrape détail) → sinon `charges`/`loyer_hc` restent `null`.
 
 La réponse contient `annonces` (liste détaillée pour la pré-fiche) **et**
-`parTypologie` + `global` (synthèse pondérée).
+`parTypologie` + `global` (synthèse pondérée). Contrat d'entrée/sortie identique
+à l'ancienne version Apify (le front n'a pas besoin de changer).
 
-La ville est résolue en code place SeLoger (`ci`, ex Bordeaux `330063`) via
-l'autocomplete SeLoger. L'actor liste renvoie l'URL dans `permalink` ; les charges
-viennent de `alur.flatRateCharges` (forfait ou provisions) → loyer HC.
+## Secret
 
-## Secrets
-
-`SUPABASE_URL` et `SUPABASE_SERVICE_ROLE_KEY` sont **injectés automatiquement**
-par la plateforme : ne pas les définir (le préfixe `SUPABASE_` est d'ailleurs
-réservé et refusé par `secrets set`).
-
-Seul `APIFY_TOKEN` est à définir :
+`SUPABASE_URL` et `SUPABASE_SERVICE_ROLE_KEY` sont **injectés automatiquement**.
+Seul **`FIRECRAWL_API_KEY`** est à définir :
 
 ```bash
-supabase secrets set APIFY_TOKEN=apify_api_xxxxxxxxxxxxxxxxxxxxx \
+supabase secrets set FIRECRAWL_API_KEY=fc-xxxxxxxxxxxxxxxxxxxxx \
   --project-ref wywndgujgtyyzzhviagu
 ```
 
 ## Déploiement
 
 ```bash
-# 1. Authentification (ouvre le navigateur) — à lancer une fois
-supabase login
-
-# 2. Déployer la fonction (pas de Docker requis)
+supabase login                                                  # une fois (TTY)
 supabase functions deploy scrape-etude --project-ref wywndgujgtyyzzhviagu
 ```
 
-`verify_jwt = false` (voir `supabase/config.toml`) : l'endpoint est public pour
-être appelé depuis le navigateur. ⚠️ Chaque appel consomme du crédit Apify —
-pour limiter les abus, on peut réactiver `verify_jwt`, ajouter un contrôle de
-mot de passe dans la fonction, ou un rate-limit.
-
-## Réponse (synthèse)
-
-```json
-{
-  "ville": "Bordeaux",
-  "transaction": "location",
-  "searchUrl": "https://www.seloger.com/list.htm?...",
-  "annoncesTrouvees": 30,
-  "annoncesRetenues": 24,
-  "inserted": 24,
-  "parTypologie": {
-    "T1": { "nb_annonces": 6, "surface_moyenne": 28.4,
-            "prix_m2_cc_pondere": 24.1, "prix_m2_hc_pondere": 21.8, ... },
-    "T2": { ... }
-  },
-  "global": { "nb_annonces": 24, "prix_m2_cc_pondere": 19.7, ... }
-}
-```
-
-`prix_m2_*_pondere` = somme(loyers ou prix) / somme(surfaces) (pondéré surface).
+`verify_jwt = false` (voir `supabase/config.toml`) : endpoint public (appelé
+depuis le navigateur). ⚠️ Chaque appel consomme du crédit Firecrawl — limité ici
+à **4 pages/étude** et **pas de scrape détail par défaut**.
