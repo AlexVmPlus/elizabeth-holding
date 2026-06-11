@@ -85,6 +85,9 @@ footer{border-top:1px solid var(--line);padding:36px 0;margin-top:30px}.fi{displ
 .spinner{width:40px;height:40px;border-radius:50%;border:4px solid var(--bsoft);border-top-color:var(--blue);margin:0 auto;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .eahead{padding:22px 24px 16px}.eahead .k{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--blue)}.eahead h2{font-size:24px;margin-top:4px}.eahead .s{color:var(--soft);font-size:14px;margin-top:3px}
 tr.ea-global td{background:var(--bg);font-weight:800;border-top:2px solid var(--line)}
+.ea-dpe{display:flex;gap:8px;flex-wrap:wrap}.ea-dpe label{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;cursor:pointer;font-weight:700;font-size:14px;background:var(--bg);user-select:none}.ea-dpe input{accent-color:var(--blue);margin:0}.ea-dpe label:has(input:checked){border-color:var(--blue);background:var(--bsoft);color:var(--deep)}
+tr.ea-rowlink{cursor:pointer}tr.ea-rowlink:hover td{background:var(--bsoft)}.ea-link{color:var(--blue);font-weight:700;white-space:nowrap}
+.ea-pill{display:inline-block;min-width:22px;text-align:center;font-weight:800;padding:2px 8px;border-radius:7px;background:var(--bsoft);color:var(--deep)}
 .leaflet-popup-content{font-family:var(--f)}.mp b{color:var(--deep)}.mp .r{font-size:13px;color:var(--soft)}
 </style></head><body>
 <nav class="nav"><div class="c ni">
@@ -143,6 +146,12 @@ tr.ea-global td{background:var(--bg);font-weight:800;border-top:2px solid var(--
 <h3>Parametres de l'etude</h3><p class="hint">Ville obligatoire, quartier optionnel. Choisissez le type de transaction puis lancez l'analyse.</p>
 <div class="g2"><div class="fld"><label>Ville *</label><input id="ea-ville" placeholder="ex. Bordeaux" autocomplete="off"></div><div class="fld"><label>Quartier (optionnel)</label><input id="ea-quartier" placeholder="ex. Saint Jean-Belcier" autocomplete="off"></div></div>
 <div class="fld"><label>Transaction</label><select id="ea-transaction"><option value="location">Location</option><option value="vente">Vente</option></select></div>
+<div class="gt" style="margin-top:18px">Filtres (optionnels)</div>
+<div class="g2"><div class="fld"><label>Annee construction min</label><input id="ea-anneemin" type="number" placeholder="ex. 2015"></div><div class="fld"><label>Annee construction max</label><input id="ea-anneemax" type="number" placeholder="ex. 2026"></div></div>
+<div class="g2"><div class="fld"><label>Prix min (&euro;)</label><input id="ea-prixmin" type="number" placeholder="loyer/mois ou prix"></div><div class="fld"><label>Prix max (&euro;)</label><input id="ea-prixmax" type="number" placeholder="loyer/mois ou prix"></div></div>
+<div class="g2"><div class="fld"><label>Surface min (m&sup2;)</label><input id="ea-surfmin" type="number" placeholder="ex. 20"></div><div class="fld"><label>Surface max (m&sup2;)</label><input id="ea-surfmax" type="number" placeholder="ex. 80"></div></div>
+<div class="fld"><label>Classe DPE (plusieurs possibles)</label><div class="ea-dpe" id="ea-dpe"><label><input type="checkbox" value="A">A</label><label><input type="checkbox" value="B">B</label><label><input type="checkbox" value="C">C</label><label><input type="checkbox" value="D">D</label><label><input type="checkbox" value="E">E</label><label><input type="checkbox" value="F">F</label><label><input type="checkbox" value="G">G</label></div></div>
+<div class="fld"><label>Nombre max d'annonces (1-60)</label><input id="ea-max" type="number" min="1" max="60" placeholder="30"></div>
 <button id="ea-run" class="btn bp" style="width:100%;margin-top:8px">Lancer l'etude</button>
 <p class="hint" style="margin:14px 0 0">&#128274; Le lancement est protege par mot de passe (consommation de credit). La consultation du site reste libre.</p>
 </div>
@@ -313,8 +322,9 @@ el.innerHTML='<h3 style="font-size:16px;margin:28px 0 10px">Programmes en base (
 /* ====== ETUDE AUTO (scraping SeLoger via Edge Function scrape-etude) ====== */
 var EA_FN="https://wywndgujgtyyzzhviagu.supabase.co/functions/v1/scrape-etude";
 var EA_KEY="sb_publishable_X0-vzzI4TjUyK2UBboENqw_iH1GT6Rw";
-var eaRun=document.getElementById("ea-run"),eaResult=document.getElementById("ea-result");
+var eaRun=document.getElementById("ea-run"),eaResult=document.getElementById("ea-result"),eaLast=null;
 function eaEsc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]})}
+function eaVal(id){var el=document.getElementById(id);if(!el)return null;var s=(el.value||"").trim();if(s==="")return null;var n=parseFloat(s);return isNaN(n)?null:n}
 function eaDate(iso){try{var d=new Date(iso);return d.toLocaleDateString("fr-FR")+" a "+d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}catch(e){return eaEsc(iso)}}
 /* loyer/m2 (location) en 1 decimale ; prix/m2 (vente) en entier ; null -> n/d */
 function eaPrix(x,tr){if(x==null)return '<span style="color:var(--soft)">n/d</span>';return (tr=="vente"?euro(x):e1(x))+" &euro;"}
@@ -332,15 +342,57 @@ body+=row("Global",j.global,"ea-global");
 var table='<div class="dl" style="margin-top:0;padding:0 24px 16px"><table><thead><tr><th>Typologie</th><th>Annonces</th><th>Surface moy.</th><th>'+c1+' ('+unit+')</th><th>'+c2+'</th><th>Prix/m&sup2; moyen</th></tr></thead><tbody>'+body+'</tbody></table></div>';
 var foot='<div style="padding:0 24px 20px;color:var(--soft);font-size:13px">Source : SeLoger &middot; '+(j.transaction=="vente"?"prix de vente":"loyers charges comprises (CC) et hors charges (HC)")+' ponderes par surface. '+(j.inserted!=null?j.inserted+' annonce'+(j.inserted>1?'s':'')+' enregistree'+(j.inserted>1?'s':'')+' en base.':'')+'</div>';
 return '<div class="card" id="ea-fiche">'+head+table+foot+'</div>'}
+/* PRE-FICHE : liste brute de toutes les annonces sourcees (verification) */
+function eaPrefiche(j){
+var nb=j.annoncesRetenues!=null?j.annoncesRetenues:((j.annonces&&j.annonces.length)||0);
+if(!nb||!j.annonces||!j.annonces.length){return '<div class="card" style="padding:28px"><div style="font-size:30px">&#128269;</div><h3 style="margin:8px 0 4px">Aucune annonce trouvee</h3><p style="color:var(--soft)">'+eaEsc(j.message||"Aucune annonce ne correspond a ces criteres. Elargissez les filtres ou augmentez le nombre max.")+'</p></div>'}
+var tr=j.transaction=="vente"?"Vente":"Location",vente=j.transaction=="vente";
+var head='<div class="eahead"><div class="k">Pre-fiche &middot; annonces sourcees</div><h2>'+eaEsc(j.ville)+(j.quartier?' &middot; '+eaEsc(j.quartier):'')+'</h2><div class="s">'+tr+' &middot; '+nb+' annonce'+(nb>1?'s':'')+' sourcee'+(nb>1?'s':'')+' &middot; '+eaDate(j.scrapedAt)+'</div></div>';
+var nd='<span style="color:var(--soft)">n/d</span>';
+var body=j.annonces.map(function(a){var u=a.url?eaEsc(a.url):"";
+var prixAff=a.loyer_cc!=null?euro(a.loyer_cc)+" &euro;":(a.prix_m2_cc!=null&&a.surface?euro(Math.round(a.prix_m2_cc*a.surface))+" &euro;":"-");
+return '<tr'+(u?' class="ea-rowlink" data-url="'+u+'"':'')+'><td><b>'+eaEsc(a.typologie||"-")+'</b><div style="color:var(--soft);font-size:12px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+eaEsc(a.titre||"")+'</div></td>'+
+'<td>'+(a.surface!=null?e1(a.surface)+" m&sup2;":"-")+'</td>'+
+'<td>'+prixAff+'</td>'+
+'<td>'+(vente?nd:(a.charges!=null?euro(a.charges)+" &euro;":nd))+'</td>'+
+'<td>'+(vente?nd:(a.loyer_hc!=null?euro(a.loyer_hc)+" &euro;":nd))+'</td>'+
+'<td>'+eaPrix(a.prix_m2_cc,j.transaction)+'</td>'+
+'<td>'+eaPrix(a.prix_m2_hc,j.transaction)+'</td>'+
+'<td>'+(a.dpe?'<span class="ea-pill">'+eaEsc(a.dpe)+'</span>':nd)+'</td>'+
+'<td>'+eaEsc(a.quartier||"-")+'</td>'+
+'<td>'+(u?'<a href="'+u+'" target="_blank" rel="noopener" class="ea-link">Voir &rarr;</a>':"-")+'</td></tr>'}).join("");
+var cP=vente?"Prix":"Loyer CC",cC=vente?"&mdash;":"Charges",cH=vente?"&mdash;":"Loyer HC";
+var table='<div class="dl" style="margin-top:0;padding:0 18px 14px"><div style="max-height:540px;overflow:auto;border:1px solid var(--line);border-radius:12px"><table><thead><tr><th>Type</th><th>Surface</th><th>'+cP+'</th><th>'+cC+'</th><th>'+cH+'</th><th>'+(vente?"Prix/m&sup2;":"Loyer/m&sup2; CC")+'</th><th>'+(vente?"&mdash;":"Loyer/m&sup2; HC")+'</th><th>DPE</th><th>Quartier</th><th></th></tr></thead><tbody>'+body+'</tbody></table></div></div>';
+var notes=[];if(j.filtres){var f=j.filtres;
+if(f.prixMin!=null||f.prixMax!=null)notes.push("prix "+(f.prixMin!=null?f.prixMin:"…")+"-"+(f.prixMax!=null?f.prixMax:"…")+" &euro;");
+if(f.surfaceMin!=null||f.surfaceMax!=null)notes.push("surface "+(f.surfaceMin!=null?f.surfaceMin:"…")+"-"+(f.surfaceMax!=null?f.surfaceMax:"…")+" m&sup2;");
+if(f.anneeMin!=null||f.anneeMax!=null)notes.push("annee "+(f.anneeMin!=null?f.anneeMin:"…")+"-"+(f.anneeMax!=null?f.anneeMax:"…"));
+if(f.dpe&&f.dpe.length)notes.push("DPE "+f.dpe.join("/"))}
+var filtreLine=notes.length?'<div style="padding:0 24px 6px;color:var(--soft);font-size:13px">Filtres : '+notes.join(" &middot; ")+'</div>':'';
+var anneeNote=(j.filtres&&(j.filtres.anneeMin!=null||j.filtres.anneeMax!=null))?'<div style="padding:0 24px 6px;color:var(--amber);font-size:12.5px">&#9888;&#65039; Annee de construction : '+(j.anneeDisponible||0)+'/'+nb+' annonce(s) exposent une annee exploitable (filtre applique seulement sur celles-ci).</div>':'';
+var foot='<div style="padding:6px 24px 18px;color:var(--soft);font-size:13px">Source : SeLoger &middot; vue de verification brute (chaque ligne ouvre l\'annonce). '+(j.inserted!=null?j.inserted+' annonce'+(j.inserted>1?'s':'')+' enregistree'+(j.inserted>1?'s':'')+' en base.':'')+'</div>';
+var btn='<div style="padding:0 24px 24px"><button id="ea-genfiche" class="btn bp">Generer la fiche complete &rarr;</button></div>';
+return '<div class="card" id="ea-prefiche">'+head+filtreLine+table+anneeNote+foot+btn+'</div><div id="ea-fiche-zone" style="margin-top:20px"></div>'}
+/* rendu + cablage des interactions (lignes cliquables + bouton fiche) */
+function eaRender(j){eaLast=j;eaResult.innerHTML=eaPrefiche(j);
+if(window.gsap)gsap.from("#ea-prefiche",{y:22,opacity:0,duration:.5,ease:"power3.out"});
+[].forEach.call(eaResult.querySelectorAll("tr.ea-rowlink"),function(tr){tr.onclick=function(e){if(e.target.closest("a"))return;var u=tr.getAttribute("data-url");if(u)window.open(u,"_blank","noopener")}});
+var gen=document.getElementById("ea-genfiche");if(gen)gen.onclick=function(){var z=document.getElementById("ea-fiche-zone");if(!z)return;z.innerHTML=eaFiche(eaLast);if(window.gsap)gsap.from("#ea-fiche",{y:18,opacity:0,duration:.45,ease:"power3.out"});gen.disabled=true;gen.textContent="Fiche generee ci-dessous";z.scrollIntoView({behavior:"smooth"})}}
 if(eaRun)eaRun.onclick=function(){
 var ville=document.getElementById("ea-ville").value.trim();if(!ville){toast("Ville obligatoire");return}
-var quartier=document.getElementById("ea-quartier").value.trim();var transaction=document.getElementById("ea-transaction").value;
+var body={ville:ville,quartier:document.getElementById("ea-quartier").value.trim(),transaction:document.getElementById("ea-transaction").value};
+var anneeMin=eaVal("ea-anneemin"),anneeMax=eaVal("ea-anneemax"),prixMin=eaVal("ea-prixmin"),prixMax=eaVal("ea-prixmax"),surfMin=eaVal("ea-surfmin"),surfMax=eaVal("ea-surfmax"),maxItems=eaVal("ea-max");
+if(anneeMin!=null)body.anneeMin=anneeMin;if(anneeMax!=null)body.anneeMax=anneeMax;
+if(prixMin!=null)body.prixMin=prixMin;if(prixMax!=null)body.prixMax=prixMax;
+if(surfMin!=null)body.surfaceMin=surfMin;if(surfMax!=null)body.surfaceMax=surfMax;
+if(maxItems!=null)body.maxItems=maxItems;
+var dpe=[].map.call(document.querySelectorAll("#ea-dpe input:checked"),function(c){return c.value});if(dpe.length)body.dpe=dpe;
 requireAuth(function(){
 eaRun.disabled=true;eaRun.textContent="Etude en cours...";eaResult.innerHTML=eaLoading();
-fetch(EA_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+EA_KEY},body:JSON.stringify({ville:ville,quartier:quartier,transaction:transaction})})
+fetch(EA_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+EA_KEY},body:JSON.stringify(body)})
 .then(function(r){return r.json().then(function(j){return {ok:r.ok,status:r.status,j:j}},function(){return {ok:r.ok,status:r.status,j:null}})})
 .then(function(res){if(!res.ok||!res.j){throw new Error((res.j&&(res.j.error||res.j.detail))||("Erreur serveur (HTTP "+res.status+")"))}
-eaResult.innerHTML=eaFiche(res.j);if(window.gsap)gsap.from("#ea-fiche",{y:22,opacity:0,duration:.5,ease:"power3.out"})})
+eaRender(res.j)})
 .catch(function(err){console.error("etude auto",err);eaResult.innerHTML=eaError((err&&err.message)||"Echec de l'etude (delai depasse ou reseau).")})
 .then(function(){eaRun.disabled=false;eaRun.textContent="Lancer l'etude"})})};
 

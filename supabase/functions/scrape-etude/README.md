@@ -22,10 +22,25 @@ Paramètres du body :
 | `transaction`| `location`   | `location` (Rent) ou `vente` (Buy)                     |
 | `maxItems`   | `30`         | nb max d'annonces (1–60)                               |
 | `natures`    | `1,2`        | filtre SeLoger : `1,2`=neuf+ancien (neuf seul `2` est trop rare) |
+| `prixMin`/`prixMax`       | —  | loyer (location) ou prix (vente) → URL `price=min/max` |
+| `surfaceMin`/`surfaceMax` | —  | m² → URL `surface=min/max`                             |
+| `dpe`        | —            | liste de classes `["A".."G"]` → **post-traitement** sur `energyBalance` |
+| `anneeMin`/`anneeMax`     | —  | année de construction → **post-traitement** (voir note) |
+
+Filtres : `prix`/`surface` passent par l'URL `list.htm` (params confirmés
+`price=min/max`, `surface=min/max`, `NaN` = borne ouverte). `dpe` et `année`
+n'ont **pas** de param `list.htm` documenté → appliqués en **post-traitement**
+sur les annonces récupérées. ⚠️ Le champ « année de construction » de l'actor
+n'est pas confirmé : la réponse renvoie `anneeDisponible` (nb d'annonces où une
+année a été trouvée) pour valider en prod ; tant qu'il vaut 0, le filtre année
+est inactif (les annonces sans année sont conservées).
+
+La réponse contient `annonces` (liste détaillée pour la pré-fiche) **et**
+`parTypologie` + `global` (synthèse pondérée).
 
 La ville est résolue en code place SeLoger (`ci`, ex Bordeaux `330063`) via
-l'autocomplete SeLoger. L'actor liste renvoie l'URL dans `permalink` ; l'actor
-détail fournit les charges (`flatRateCharges`, parfois absentes → loyer HC laissé à `null`).
+l'autocomplete SeLoger. L'actor liste renvoie l'URL dans `permalink` ; les charges
+viennent de `alur.flatRateCharges` (forfait ou provisions) → loyer HC.
 
 ## Secrets
 

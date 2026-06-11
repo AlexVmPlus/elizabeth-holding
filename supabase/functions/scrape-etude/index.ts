@@ -23,7 +23,11 @@
 import {
   buildSearchUrl,
   cleanDetail,
+  constructionYear,
   type GeoInfo,
+  normalizeDpe,
+  num,
+  passesFilters,
   synthesize,
   type Transaction,
 } from "./lib.ts";
@@ -47,6 +51,14 @@ interface ReqBody {
   transaction?: Transaction;
   maxItems?: number;
   natures?: string; // filtre SeLoger : "1,2" (defaut, neuf+ancien) ou "2" (neuf seul, rare)
+  // Filtres optionnels
+  anneeMin?: number | string; // annee de construction (post-traitement, si dispo)
+  anneeMax?: number | string;
+  prixMin?: number | string; // loyer (location) ou prix (vente) -> URL price=min/max
+  prixMax?: number | string;
+  surfaceMin?: number | string; // m2 -> URL surface=min/max
+  surfaceMax?: number | string;
+  dpe?: string[] | string; // liste de classes A..G (post-traitement sur energyBalance)
 }
 
 function json(body: unknown, status = 200): Response {
@@ -130,8 +142,15 @@ Deno.serve(async (req: Request) => {
   const ville = (body.ville || "").trim();
   const quartier = (body.quartier || "").trim();
   const transaction: Transaction = body.transaction === "vente" ? "vente" : "location";
-  const maxItems = Math.min(Math.max(Math.round(body.maxItems ?? 30), 1), 60);
+  const maxItems = Math.min(Math.max(Math.round(num(body.maxItems) ?? 30), 1), 60);
   const natures = (body.natures || "1,2").trim(); // neuf + ancien (neuf seul trop rare)
+
+  // Filtres optionnels (prix/surface -> URL ; dpe/annee -> post-traitement)
+  const prixMin = num(body.prixMin), prixMax = num(body.prixMax);
+  const surfaceMin = num(body.surfaceMin), surfaceMax = num(body.surfaceMax);
+  const anneeMin = num(body.anneeMin), anneeMax = num(body.anneeMax);
+  const dpe = normalizeDpe(body.dpe);
+  const filters = { prixMin, prixMax, surfaceMin, surfaceMax, anneeMin, anneeMax, dpe };
 
   if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
 
@@ -148,7 +167,7 @@ Deno.serve(async (req: Request) => {
 
     // 2. Code place SeLoger (ci) + URL de recherche
     const ci = await selogerCi(ville, geo.insee);
-    const searchUrl = buildSearchUrl(ci, transaction, natures);
+    const searchUrl = buildSearchUrl(ci, transaction, natures, { prixMin, prixMax, surfaceMin, surfaceMax });
 
     // 3. Actor LISTE -> URLs d'annonces
     const listItems = await apifyRunSync(APIFY_LIST_ACTOR, { startUrl: searchUrl, maxItems }, APIFY_TOKEN);
@@ -162,20 +181,27 @@ Deno.serve(async (req: Request) => {
     if (uniqueUrls.length === 0) {
       return json({
         ville: geo.nom, quartier: quartier || null, transaction, searchUrl, insee: geo.insee, ci,
-        annoncesTrouvees: 0, annoncesRetenues: 0, inserted: 0,
+        filtres: { anneeMin, anneeMax, prixMin, prixMax, surfaceMin, surfaceMax, dpe, maxItems },
+        annoncesTrouvees: 0, annoncesRetenues: 0, anneeDisponible: 0, inserted: 0,
         message: "Aucune annonce trouvee pour ces criteres (essayez une autre ville/transaction ou augmentez maxItems).",
-        parTypologie: {}, global: null,
+        annonces: [], parTypologie: {}, global: null,
       });
     }
 
     // 4. Actor DETAIL -> champs detailles
     const detailItems = await apifyRunSync(APIFY_DETAIL_ACTOR, { startUrls: uniqueUrls }, APIFY_TOKEN);
 
-    // 5. Nettoyage + calculs
+    // 5. Filtres post-traitement (DPE/annee + securite prix/surface) + nettoyage
     const scrapedAt = new Date().toISOString();
-    const rows = detailItems
-      .map((d) => cleanDetail(d, transaction, quartier, geo, scrapedAt))
-      .filter((r): r is NonNullable<typeof r> => r !== null);
+    const rows: NonNullable<ReturnType<typeof cleanDetail>>[] = [];
+    let anneeDisponible = 0; // diagnostic : nb d'annonces ou une annee a ete trouvee
+    for (const d of detailItems) {
+      if (!passesFilters(d, filters)) continue;
+      const r = cleanDetail(d, transaction, quartier, geo, scrapedAt);
+      if (!r) continue;
+      rows.push(r);
+      if (constructionYear(d) != null) anneeDisponible++;
+    }
 
     // 6. Insertion dans etudes_marche (service_role : bypass RLS)
     let inserted = 0;
@@ -200,8 +226,25 @@ Deno.serve(async (req: Request) => {
       inserted = rows.length;
     }
 
-    // 7. Synthese
+    // 7. Synthese + liste detaillee des annonces retenues (pour la pre-fiche)
     const synth = synthesize(rows, transaction);
+    const annonces = rows.map((r) => ({
+      titre: r.titre,
+      typologie: r.typologie,
+      nb_pieces: r.nb_pieces,
+      surface: r.surface,
+      loyer_cc: r.loyer_cc,
+      charges: r.charges,
+      loyer_hc: r.loyer_hc,
+      prix_m2_cc: r.prix_m2_cc,
+      prix_m2_hc: r.prix_m2_hc,
+      dpe: r.dpe,
+      nature: r.nature,
+      quartier: r.quartier,
+      ville: r.ville,
+      code_postal: r.code_postal,
+      url: r.url,
+    }));
 
     return json({
       ville: geo.nom,
@@ -211,9 +254,12 @@ Deno.serve(async (req: Request) => {
       ci,
       searchUrl,
       scrapedAt,
+      filtres: { anneeMin, anneeMax, prixMin, prixMax, surfaceMin, surfaceMax, dpe, maxItems },
       annoncesTrouvees: uniqueUrls.length,
       annoncesRetenues: rows.length,
+      anneeDisponible,
       inserted,
+      annonces,
       parTypologie: synth.parTypologie,
       global: synth.global,
     });
