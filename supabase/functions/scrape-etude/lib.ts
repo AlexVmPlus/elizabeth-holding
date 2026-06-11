@@ -62,6 +62,23 @@ export function buildSearchUrl(ci: string | number, transaction: Transaction, na
     `&enterprise=0&qsVersion=1.0`;
 }
 
+// Extrait le montant MENSUEL des charges d'une annonce de location.
+// SeLoger expose les charges dans l'objet `alur` (alur.flatRateCharges), que ce
+// soit des charges forfaitaires (ifProvisionsOnCharges=false) ou des provisions
+// avec regularisation (ifProvisionsOnCharges=true). Le champ racine flatRateCharges
+// est generalement vide et condoAnnualCharges = 0.
+// Fallback : alur.flatRateCharges -> flatRateCharges racine -> condoAnnualCharges/12.
+// deno-lint-ignore no-explicit-any
+export function chargesFromDetail(d: any): number | null {
+  const alur = num(d?.alur?.flatRateCharges);
+  if (alur !== null && alur > 0) return round(alur);
+  const root = num(d?.flatRateCharges);
+  if (root !== null && root > 0) return round(root);
+  const condoAnnual = num(d?.condoAnnualCharges);
+  if (condoAnnual !== null && condoAnnual > 0) return round(condoAnnual / 12);
+  return null;
+}
+
 // Nettoie une annonce detaillee Apify -> ligne `etudes_marche`, ou null si rejetee.
 export function cleanDetail(
   // deno-lint-ignore no-explicit-any
@@ -83,15 +100,15 @@ export function cleanDetail(
   const rooms = num(d?.rooms);
 
   // En location, le prix SeLoger est charges comprises (CC). Les charges
-  // forfaitaires (flatRateCharges) sont parfois absentes : dans ce cas on
-  // laisse charges / loyer_hc a null (le loyer CC reste exploitable).
+  // mensuelles viennent de l'objet alur (forfait OU provisions). Si introuvables
+  // ou incoherentes, on laisse charges / loyer_hc a null (le loyer CC reste OK).
   let charges: number | null = null;
   let loyer_cc: number | null = null;
   let loyer_hc: number | null = null;
   if (transaction === "location") {
     loyer_cc = price;
-    const c = num(d?.flatRateCharges);
-    if (c !== null) {
+    const c = chargesFromDetail(d);
+    if (c !== null && c < price) {
       charges = c;
       loyer_hc = round(price - c);
     }

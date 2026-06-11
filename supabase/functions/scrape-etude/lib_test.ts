@@ -1,5 +1,13 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { buildSearchUrl, cleanDetail, dpeLetter, type GeoInfo, synthesize, typologie } from "./lib.ts";
+import {
+  buildSearchUrl,
+  chargesFromDetail,
+  cleanDetail,
+  dpeLetter,
+  type GeoInfo,
+  synthesize,
+  typologie,
+} from "./lib.ts";
 
 const GEO: GeoInfo = { insee: "33063", nom: "Bordeaux", lat: 44.84, lng: -0.58, codePostal: "33000" };
 const AT = "2026-06-10T00:00:00.000Z";
@@ -32,6 +40,46 @@ Deno.test("buildSearchUrl : location -> Rent, neuf, ci numerique", () => {
 Deno.test("buildSearchUrl : vente -> Buy", () => {
   const u = buildSearchUrl("330063", "vente", "2");
   assertEquals(u.includes("distributionTypes=Buy"), true);
+});
+
+Deno.test("chargesFromDetail : provisions dans alur (cas reel)", () => {
+  // Annonce reelle 267627119 : provisions 339,60 € dans alur
+  assertEquals(chargesFromDetail({ alur: { flatRateCharges: 339.6, ifProvisionsOnCharges: true }, flatRateCharges: null, condoAnnualCharges: 0 }), 339.6);
+});
+
+Deno.test("chargesFromDetail : forfait dans alur", () => {
+  assertEquals(chargesFromDetail({ alur: { flatRateCharges: 80, ifProvisionsOnCharges: false } }), 80);
+});
+
+Deno.test("chargesFromDetail : fallback flatRateCharges racine puis condoAnnualCharges/12", () => {
+  assertEquals(chargesFromDetail({ alur: { flatRateCharges: 0 }, flatRateCharges: 60 }), 60);
+  assertEquals(chargesFromDetail({ condoAnnualCharges: 1200 }), 100); // /12
+  assertEquals(chargesFromDetail({}), null);
+  assertEquals(chargesFromDetail({ alur: {}, flatRateCharges: 0, condoAnnualCharges: 0 }), null);
+});
+
+Deno.test("cleanDetail : provisions alur -> loyer_hc et prix_m2_hc (cas reel)", () => {
+  const r = cleanDetail(
+    {
+      title: "Appartement T5 Saint-Jean Belcier",
+      rooms: 5,
+      livingArea: 113.2,
+      price: 1698,
+      alur: { flatRateCharges: 339.6, ifProvisionsOnCharges: true, price: 1698 },
+      city: "Bordeaux",
+      zipCode: "33800",
+    },
+    "location",
+    "Saint Jean-Belcier",
+    GEO,
+    AT,
+  )!;
+  assertEquals(r.loyer_cc, 1698);
+  assertEquals(r.charges, 339.6);
+  assertEquals(r.loyer_hc, 1358.4); // 1698 - 339.6
+  assertEquals(r.prix_m2_cc, 15); // 1698/113.2
+  assertEquals(r.prix_m2_hc, 12); // 1358.4/113.2
+  assertEquals(r.typologie, "T5");
 });
 
 Deno.test("cleanDetail : location calcule loyer_hc et prix/m2", () => {
