@@ -49,17 +49,22 @@ export interface GeoInfo {
 export type Transaction = "location" | "vente";
 
 export interface UrlFilters {
-  prixMin?: number | null;
-  prixMax?: number | null;
-  surfaceMin?: number | null;
-  surfaceMax?: number | null;
+  rooms?: string | null; // valeur du param SeLoger `rooms` (ex "2" ou "6,7,8,9,10")
+}
+
+// Param SeLoger `rooms` pour une typologie T1..T6 (T6 = 6 pieces et plus).
+export function roomsParam(typo: string | null | undefined): string | null {
+  if (!typo) return null;
+  const m = /^T([1-6])$/.exec(typo);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n >= 6 ? "6,7,8,9,10" : String(n);
 }
 
 // --- Construit l'URL de recherche SeLoger filtree neuf ----------------------
 // `ci` = code place SeLoger (6 chiffres, ex Bordeaux 330063), resolu via
 // l'autocomplete SeLoger. Doit etre un NOMBRE dans le parametre places.
-// Filtres list.htm confirmes : price=min/max et surface=min/max (NaN = borne
-// ouverte). DPE et annee ne sont PAS supportes dans l'URL -> post-traitement.
+// Filtre typologie via le param list.htm confirme `rooms`.
 export function buildSearchUrl(
   ci: string | number,
   transaction: Transaction,
@@ -74,13 +79,7 @@ export function buildSearchUrl(
   let url = `https://www.seloger.com/list.htm?projects=${projects}&types=1,2` +
     `&natures=${natures}&places=${places}&distributionTypes=${dist}` +
     `&enterprise=0&qsVersion=1.0`;
-  const { prixMin, prixMax, surfaceMin, surfaceMax } = filters;
-  if (prixMin != null || prixMax != null) {
-    url += `&price=${prixMin != null ? prixMin : "NaN"}/${prixMax != null ? prixMax : "NaN"}`;
-  }
-  if (surfaceMin != null || surfaceMax != null) {
-    url += `&surface=${surfaceMin != null ? surfaceMin : "NaN"}/${surfaceMax != null ? surfaceMax : "NaN"}`;
-  }
+  if (filters.rooms) url += `&rooms=${filters.rooms}`;
   return url;
 }
 
@@ -229,68 +228,21 @@ export function synthesize(rows: CleanRow[], transaction: Transaction) {
 }
 
 // ============================================================================
-// FILTRES POST-TRAITEMENT (DPE + annee non supportes par l'URL list.htm).
-// Le prix et la surface sont deja filtres cote URL ; on les re-applique ici
-// par securite (SeLoger peut etre laxiste sur les bornes).
+// FILTRE POST-TRAITEMENT : typologie (sur le nb de pieces `rooms`).
+// (Le filtre "neuf uniquement" est gere cote handler car il s'appuie sur
+//  le champ isNew de l'actor LISTE.)
 // ============================================================================
 
-export function normalizeDpe(dpe: unknown): string[] {
-  if (!dpe) return [];
-  const arr = Array.isArray(dpe) ? dpe : String(dpe).split(",");
-  return arr.map((x) => String(x).trim().toUpperCase()).filter((x) => /^[A-G]$/.test(x));
+export interface Filters {
+  typologie?: string | null; // "T1".."T6" ; vide/null = toutes
 }
 
-// Annee de construction : le nom du champ cote actor SeLoger n'est PAS confirme.
-// On teste plusieurs candidats ; renvoie null si introuvable (le filtre annee
-// est alors inactif pour cette annonce). Le diagnostic `anneeDisponible` (cote
-// handler) permet de verifier en prod si un champ remonte vraiment.
-// deno-lint-ignore no-explicit-any
-export function constructionYear(d: any): number | null {
-  const cands = [
-    d?.constructionYear,
-    d?.yearOfConstruction,
-    d?.buildingYear,
-    d?.yearBuilt,
-    d?.buildYear,
-    d?.constructionDate,
-    d?.alur?.constructionYear,
-    d?.building?.constructionYear,
-    d?.features?.constructionYear,
-  ];
-  for (const c of cands) {
-    if (c == null) continue;
-    const s = typeof c === "string" ? (c.match(/\d{4}/)?.[0] ?? "") : c;
-    const y = num(s);
-    if (y !== null && y >= 1700 && y <= 2100) return Math.round(y);
-  }
-  return null;
-}
-
-export interface Filters extends UrlFilters {
-  dpe?: string[] | string | null;
-  anneeMin?: number | null;
-  anneeMax?: number | null;
-}
-
-// true si l'item detail brut passe les filtres post-traitement.
+// true si l'item detail brut passe le filtre typologie.
 // deno-lint-ignore no-explicit-any
 export function passesFilters(d: any, f: Filters): boolean {
-  const price = num(d?.price);
-  if (f.prixMin != null && (price == null || price < f.prixMin)) return false;
-  if (f.prixMax != null && (price == null || price > f.prixMax)) return false;
-  const surf = num(d?.livingArea);
-  if (f.surfaceMin != null && (surf == null || surf < f.surfaceMin)) return false;
-  if (f.surfaceMax != null && (surf == null || surf > f.surfaceMax)) return false;
-  const dpeList = normalizeDpe(f.dpe);
-  if (dpeList.length) {
-    const letter = dpeLetter(d?.energyBalance);
-    if (!letter || dpeList.indexOf(letter) < 0) return false;
-  }
-  // Annee : appliquee seulement si une annee a ete trouvee (sinon on conserve).
-  const year = constructionYear(d);
-  if (year != null) {
-    if (f.anneeMin != null && year < f.anneeMin) return false;
-    if (f.anneeMax != null && year > f.anneeMax) return false;
+  if (f.typologie) {
+    const t = typologie(num(d?.rooms));
+    if (t !== f.typologie) return false;
   }
   return true;
 }

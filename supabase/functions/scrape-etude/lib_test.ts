@@ -3,11 +3,10 @@ import {
   buildSearchUrl,
   chargesFromDetail,
   cleanDetail,
-  constructionYear,
   dpeLetter,
   type GeoInfo,
-  normalizeDpe,
   passesFilters,
+  roomsParam,
   synthesize,
   typologie,
 } from "./lib.ts";
@@ -45,47 +44,31 @@ Deno.test("buildSearchUrl : vente -> Buy", () => {
   assertEquals(u.includes("distributionTypes=Buy"), true);
 });
 
-Deno.test("buildSearchUrl : filtres prix/surface (NaN = borne ouverte)", () => {
-  const u = buildSearchUrl("330063", "location", "1,2", { prixMin: 500, prixMax: 1200, surfaceMin: 30 });
-  assertEquals(u.includes("&price=500/1200"), true);
-  assertEquals(u.includes("&surface=30/NaN"), true);
-  // sans filtre -> pas de param price/surface
+Deno.test("roomsParam : typologie -> param SeLoger rooms", () => {
+  assertEquals(roomsParam("T1"), "1");
+  assertEquals(roomsParam("T3"), "3");
+  assertEquals(roomsParam("T6"), "6,7,8,9,10"); // T6 = 6 pieces et plus
+  assertEquals(roomsParam(""), null);
+  assertEquals(roomsParam(null), null);
+});
+
+Deno.test("buildSearchUrl : filtre typologie -> param rooms", () => {
+  const u = buildSearchUrl("330063", "location", "1,2", { rooms: roomsParam("T2") });
+  assertEquals(u.includes("&rooms=2"), true);
+  // sans typologie -> pas de param rooms
   const u2 = buildSearchUrl("330063", "location", "1,2");
-  assertEquals(u2.includes("price="), false);
-  assertEquals(u2.includes("surface="), false);
+  assertEquals(u2.includes("rooms="), false);
 });
 
-Deno.test("normalizeDpe : chaine, tableau, valeurs invalides", () => {
-  assertEquals(normalizeDpe("a,c , F"), ["A", "C", "F"]);
-  assertEquals(normalizeDpe(["b", "g"]), ["B", "G"]);
-  assertEquals(normalizeDpe("X,123,"), []);
-  assertEquals(normalizeDpe(null), []);
-});
-
-Deno.test("constructionYear : extrait une annee plausible ou null", () => {
-  assertEquals(constructionYear({ constructionYear: 2019 }), 2019);
-  assertEquals(constructionYear({ constructionDate: "Livraison 2024" }), 2024);
-  assertEquals(constructionYear({ alur: { constructionYear: 2008 } }), 2008);
-  assertEquals(constructionYear({ title: "T2 lumineux" }), null);
-  assertEquals(constructionYear({ constructionYear: 1500 }), null); // hors plage
-});
-
-Deno.test("passesFilters : prix/surface/dpe", () => {
-  const d = { price: 900, livingArea: 45, energyBalance: { letter: "C" } };
-  assertEquals(passesFilters(d, { prixMin: 800, prixMax: 1000 }), true);
-  assertEquals(passesFilters(d, { prixMax: 800 }), false); // trop cher
-  assertEquals(passesFilters(d, { surfaceMin: 50 }), false); // trop petit
-  assertEquals(passesFilters(d, { dpe: ["C", "D"] }), true);
-  assertEquals(passesFilters(d, { dpe: ["A", "B"] }), false); // DPE hors liste
-});
-
-Deno.test("passesFilters : annee appliquee seulement si trouvee", () => {
-  const sansAnnee = { price: 900, livingArea: 45 };
-  // pas d'annee dans l'item -> on conserve malgre le filtre annee
-  assertEquals(passesFilters(sansAnnee, { anneeMin: 2015 }), true);
-  const avecAnnee = { price: 900, livingArea: 45, constructionYear: 2010 };
-  assertEquals(passesFilters(avecAnnee, { anneeMin: 2015 }), false);
-  assertEquals(passesFilters(avecAnnee, { anneeMin: 2005, anneeMax: 2015 }), true);
+Deno.test("passesFilters : typologie sur le nb de pieces", () => {
+  const t2 = { rooms: 2 };
+  assertEquals(passesFilters(t2, { typologie: "T2" }), true);
+  assertEquals(passesFilters(t2, { typologie: "T3" }), false);
+  // T6 = 6 pieces et plus
+  assertEquals(passesFilters({ rooms: 7 }, { typologie: "T6" }), true);
+  // pas de filtre -> tout passe
+  assertEquals(passesFilters(t2, {}), true);
+  assertEquals(passesFilters({ rooms: null }, { typologie: "T2" }), false);
 });
 
 Deno.test("chargesFromDetail : provisions dans alur (cas reel)", () => {

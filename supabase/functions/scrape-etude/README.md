@@ -22,18 +22,12 @@ Paramètres du body :
 | `transaction`| `location`   | `location` (Rent) ou `vente` (Buy)                     |
 | `maxItems`   | `30`         | nb max d'annonces (1–60)                               |
 | `natures`    | `1,2`        | filtre SeLoger : `1,2`=neuf+ancien (neuf seul `2` est trop rare) |
-| `prixMin`/`prixMax`       | —  | loyer (location) ou prix (vente) → URL `price=min/max` |
-| `surfaceMin`/`surfaceMax` | —  | m² → URL `surface=min/max`                             |
-| `dpe`        | —            | liste de classes `["A".."G"]` → **post-traitement** sur `energyBalance` |
-| `anneeMin`/`anneeMax`     | —  | année de construction → **post-traitement** (voir note) |
+| `typologie`  | —            | `T1`..`T6` (T1=studio/1 pièce … T6=6 pièces et +) → URL `rooms` |
+| `neufOnly`   | `false`      | si `true`, ne garde que les annonces `isNew=true` (post-traitement) |
 
-Filtres : `prix`/`surface` passent par l'URL `list.htm` (params confirmés
-`price=min/max`, `surface=min/max`, `NaN` = borne ouverte). `dpe` et `année`
-n'ont **pas** de param `list.htm` documenté → appliqués en **post-traitement**
-sur les annonces récupérées. ⚠️ Le champ « année de construction » de l'actor
-n'est pas confirmé : la réponse renvoie `anneeDisponible` (nb d'annonces où une
-année a été trouvée) pour valider en prod ; tant qu'il vaut 0, le filtre année
-est inactif (les annonces sans année sont conservées).
+Filtres : la `typologie` passe par le param `list.htm` confirmé `rooms`
+(T6 → `rooms=6,7,8,9,10`) **et** est re-vérifiée en post-traitement sur le champ
+`rooms`. `neufOnly` s'appuie sur le champ `isNew` de l'actor LISTE (post-traitement).
 
 La réponse contient `annonces` (liste détaillée pour la pré-fiche) **et**
 `parTypologie` + `global` (synthèse pondérée).

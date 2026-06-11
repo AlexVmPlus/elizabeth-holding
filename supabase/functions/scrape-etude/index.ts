@@ -23,11 +23,10 @@
 import {
   buildSearchUrl,
   cleanDetail,
-  constructionYear,
   type GeoInfo,
-  normalizeDpe,
   num,
   passesFilters,
+  roomsParam,
   synthesize,
   type Transaction,
 } from "./lib.ts";
@@ -52,13 +51,8 @@ interface ReqBody {
   maxItems?: number;
   natures?: string; // filtre SeLoger : "1,2" (defaut, neuf+ancien) ou "2" (neuf seul, rare)
   // Filtres optionnels
-  anneeMin?: number | string; // annee de construction (post-traitement, si dispo)
-  anneeMax?: number | string;
-  prixMin?: number | string; // loyer (location) ou prix (vente) -> URL price=min/max
-  prixMax?: number | string;
-  surfaceMin?: number | string; // m2 -> URL surface=min/max
-  surfaceMax?: number | string;
-  dpe?: string[] | string; // liste de classes A..G (post-traitement sur energyBalance)
+  typologie?: string; // "T1".."T6" ; vide = toutes (-> param SeLoger rooms)
+  neufOnly?: boolean; // ne garder que les annonces isNew=true (post-traitement)
 }
 
 function json(body: unknown, status = 200): Response {
@@ -145,12 +139,9 @@ Deno.serve(async (req: Request) => {
   const maxItems = Math.min(Math.max(Math.round(num(body.maxItems) ?? 30), 1), 60);
   const natures = (body.natures || "1,2").trim(); // neuf + ancien (neuf seul trop rare)
 
-  // Filtres optionnels (prix/surface -> URL ; dpe/annee -> post-traitement)
-  const prixMin = num(body.prixMin), prixMax = num(body.prixMax);
-  const surfaceMin = num(body.surfaceMin), surfaceMax = num(body.surfaceMax);
-  const anneeMin = num(body.anneeMin), anneeMax = num(body.anneeMax);
-  const dpe = normalizeDpe(body.dpe);
-  const filters = { prixMin, prixMax, surfaceMin, surfaceMax, anneeMin, anneeMax, dpe };
+  // Filtres optionnels : typologie (-> param SeLoger rooms) ; neuf (post-traitement)
+  const typologie = /^T[1-6]$/.test(String(body.typologie || "")) ? String(body.typologie) : null;
+  const neufOnly = body.neufOnly === true;
 
   if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
 
@@ -167,22 +158,26 @@ Deno.serve(async (req: Request) => {
 
     // 2. Code place SeLoger (ci) + URL de recherche
     const ci = await selogerCi(ville, geo.insee);
-    const searchUrl = buildSearchUrl(ci, transaction, natures, { prixMin, prixMax, surfaceMin, surfaceMax });
+    const searchUrl = buildSearchUrl(ci, transaction, natures, { rooms: roomsParam(typologie) });
 
-    // 3. Actor LISTE -> URLs d'annonces
+    // 3. Actor LISTE -> URLs d'annonces (+ set des URLs "neuf" via isNew)
     const listItems = await apifyRunSync(APIFY_LIST_ACTOR, { startUrl: searchUrl, maxItems }, APIFY_TOKEN);
     const urls: string[] = [];
+    const newUrls = new Set<string>();
     for (const it of listItems) {
       const u = it?.permalink || it?.url;
-      if (typeof u === "string" && u) urls.push(u);
+      if (typeof u === "string" && u) {
+        urls.push(u);
+        if (it?.isNew === true) newUrls.add(u);
+      }
     }
     const uniqueUrls = [...new Set(urls)].slice(0, maxItems);
 
     if (uniqueUrls.length === 0) {
       return json({
         ville: geo.nom, quartier: quartier || null, transaction, searchUrl, insee: geo.insee, ci,
-        filtres: { anneeMin, anneeMax, prixMin, prixMax, surfaceMin, surfaceMax, dpe, maxItems },
-        annoncesTrouvees: 0, annoncesRetenues: 0, anneeDisponible: 0, inserted: 0,
+        filtres: { typologie, neufOnly, maxItems },
+        annoncesTrouvees: 0, annoncesRetenues: 0, inserted: 0,
         message: "Aucune annonce trouvee pour ces criteres (essayez une autre ville/transaction ou augmentez maxItems).",
         annonces: [], parTypologie: {}, global: null,
       });
@@ -191,16 +186,19 @@ Deno.serve(async (req: Request) => {
     // 4. Actor DETAIL -> champs detailles
     const detailItems = await apifyRunSync(APIFY_DETAIL_ACTOR, { startUrls: uniqueUrls }, APIFY_TOKEN);
 
-    // 5. Filtres post-traitement (DPE/annee + securite prix/surface) + nettoyage
+    // 5. Filtres post-traitement (typologie + neuf) + nettoyage
     const scrapedAt = new Date().toISOString();
     const rows: NonNullable<ReturnType<typeof cleanDetail>>[] = [];
-    let anneeDisponible = 0; // diagnostic : nb d'annonces ou une annee a ete trouvee
     for (const d of detailItems) {
-      if (!passesFilters(d, filters)) continue;
+      if (!passesFilters(d, { typologie })) continue;
+      if (neufOnly) {
+        const u = d?.permalink || d?.url;
+        const isNew = d?.isNew === true || (typeof u === "string" && newUrls.has(u));
+        if (!isNew) continue;
+      }
       const r = cleanDetail(d, transaction, quartier, geo, scrapedAt);
       if (!r) continue;
       rows.push(r);
-      if (constructionYear(d) != null) anneeDisponible++;
     }
 
     // 6. Insertion dans etudes_marche (service_role : bypass RLS)
@@ -254,10 +252,9 @@ Deno.serve(async (req: Request) => {
       ci,
       searchUrl,
       scrapedAt,
-      filtres: { anneeMin, anneeMax, prixMin, prixMax, surfaceMin, surfaceMax, dpe, maxItems },
+      filtres: { typologie, neufOnly, maxItems },
       annoncesTrouvees: uniqueUrls.length,
       annoncesRetenues: rows.length,
-      anneeDisponible,
       inserted,
       annonces,
       parTypologie: synth.parTypologie,
