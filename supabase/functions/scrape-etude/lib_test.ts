@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { buildSearchUrl, cleanDetail, type GeoInfo, synthesize, typologie } from "./lib.ts";
+import { buildSearchUrl, cleanDetail, dpeLetter, type GeoInfo, synthesize, typologie } from "./lib.ts";
 
 const GEO: GeoInfo = { insee: "33063", nom: "Bordeaux", lat: 44.84, lng: -0.58, codePostal: "33000" };
 const AT = "2026-06-10T00:00:00.000Z";
@@ -11,6 +11,14 @@ Deno.test("typologie T1..T6", () => {
   assertEquals(typologie(9), "T6"); // plafonne a T6
   assertEquals(typologie(0), null);
   assertEquals(typologie(null), null);
+});
+
+Deno.test("dpeLetter : chaine, objet, objet vide", () => {
+  assertEquals(dpeLetter("c"), "C");
+  assertEquals(dpeLetter({ letter: "D" }), "D");
+  assertEquals(dpeLetter({ value: "B" }), "B");
+  assertEquals(dpeLetter({}), null); // objet vide -> pas de "{}"
+  assertEquals(dpeLetter(null), null);
 });
 
 Deno.test("buildSearchUrl : location -> Rent, neuf, ci numerique", () => {

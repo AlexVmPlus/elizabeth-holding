@@ -24,6 +24,20 @@ export function typologie(rooms: number | null): string | null {
   return "T" + Math.min(Math.round(rooms), 6);
 }
 
+// Extrait la lettre DPE (A..G) depuis energyBalance, qui peut etre une chaine
+// ("C"), un objet ({letter|value|grade|label|...: "C"}) ou un objet vide ({}).
+export function dpeLetter(v: unknown): string | null {
+  if (!v) return null;
+  if (typeof v === "string") return v.trim().toUpperCase() || null;
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    const cand = o.letter ?? o.value ?? o.grade ?? o.label ?? o.energyClass ?? o.classe ?? o.dpe;
+    if (typeof cand === "string" && cand.trim()) return cand.trim().toUpperCase();
+    if (typeof cand === "number") return String(cand);
+  }
+  return null;
+}
+
 export interface GeoInfo {
   insee: string;
   nom: string;
@@ -103,7 +117,7 @@ export function cleanDetail(
     loyer_hc,
     prix_m2_cc,
     prix_m2_hc,
-    dpe: d?.energyBalance || null,
+    dpe: dpeLetter(d?.energyBalance),
     nature: d?.propertyNature || d?.nature || null,
     url: d?.permalink || d?.url || null,
     source: "seloger",
