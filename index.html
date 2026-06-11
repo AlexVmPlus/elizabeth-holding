@@ -81,11 +81,15 @@ footer{border-top:1px solid var(--line);padding:36px 0;margin-top:30px}.fi{displ
 .del{background:#ffe9ef;color:var(--rose);border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-weight:600;font-family:var(--f)}
 .edit{background:var(--bsoft);color:var(--blue);border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-weight:600;font-family:var(--f);margin-right:6px}
 .view{display:none}.view.active{display:block}
+.fld select{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:11px;font-size:15px;font-family:var(--f);background:var(--bg);color:var(--ink);outline:none;cursor:pointer}.fld select:focus{border-color:var(--blue);background:#fff}
+.spinner{width:40px;height:40px;border-radius:50%;border:4px solid var(--bsoft);border-top-color:var(--blue);margin:0 auto;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+.eahead{padding:22px 24px 16px}.eahead .k{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--blue)}.eahead h2{font-size:24px;margin-top:4px}.eahead .s{color:var(--soft);font-size:14px;margin-top:3px}
+tr.ea-global td{background:var(--bg);font-weight:800;border-top:2px solid var(--line)}
 .leaflet-popup-content{font-family:var(--f)}.mp b{color:var(--deep)}.mp .r{font-size:13px;color:var(--soft)}
 </style></head><body>
 <nav class="nav"><div class="c ni">
 <div class="brand" data-view="accueil"><span class="logo">EH</span><span>Elizabeth Holding<small>Intelligence immobiliere</small></span></div>
-<div class="nl"><a data-view="accueil">Accueil</a><a data-view="accueil" data-scroll="exp">Carte</a><a class="cta" data-view="etudes">Etudes de marche</a></div>
+<div class="nl"><a data-view="accueil">Accueil</a><a data-view="accueil" data-scroll="exp">Carte</a><a data-view="etude-auto">Etude auto</a><a class="cta" data-view="etudes">Etudes de marche</a></div>
 </div></nav>
 
 <div class="view active" id="view-accueil">
@@ -132,6 +136,18 @@ footer{border-top:1px solid var(--line);padding:36px 0;margin-top:30px}.fi{displ
 <div style="display:flex;gap:10px;margin-top:8px"><button id="save" class="btn bp" style="flex:1">Enregistrer et ajouter a la carte</button><button id="fcancel" class="btn bg2" style="display:none">Annuler</button></div>
 <div class="dl" id="dl"></div>
 </div></div></section></div>
+
+<div class="view" id="view-etude-auto"><section class="fp"><div class="c">
+<div class="st" style="text-align:left"><div class="k">Etude de marche automatique</div><h2 style="margin-top:6px">Generez une etude en temps reel</h2><p style="margin-left:0">Generez une etude de marche automatique a partir des annonces SeLoger en temps reel. Indiquez une ville, le scraping et l'analyse sont automatiques.</p></div>
+<div class="fc" style="max-width:700px">
+<h3>Parametres de l'etude</h3><p class="hint">Ville obligatoire, quartier optionnel. Choisissez le type de transaction puis lancez l'analyse.</p>
+<div class="g2"><div class="fld"><label>Ville *</label><input id="ea-ville" placeholder="ex. Bordeaux" autocomplete="off"></div><div class="fld"><label>Quartier (optionnel)</label><input id="ea-quartier" placeholder="ex. Saint Jean-Belcier" autocomplete="off"></div></div>
+<div class="fld"><label>Transaction</label><select id="ea-transaction"><option value="location">Location</option><option value="vente">Vente</option></select></div>
+<button id="ea-run" class="btn bp" style="width:100%;margin-top:8px">Lancer l'etude</button>
+<p class="hint" style="margin:14px 0 0">&#128274; Le lancement est protege par mot de passe (consommation de credit). La consultation du site reste libre.</p>
+</div>
+<div id="ea-result" style="margin-top:24px"></div>
+</div></section></div>
 
 <footer><div class="c fi"><div>&copy; <span id="yr"></span> Elizabeth Holding - Intelligence immobiliere</div><div>Donnees : programmes recus, geolocalises et agreges</div></div></footer>
 <div class="toast" id="toast">Enregistre</div>
@@ -243,11 +259,11 @@ var fLat=null,fLng=null,fCP=null,editId=null,editMeta=null;
 var sb=document.getElementById("save");
 
 /* ====== AUTHENTIFICATION (gate ajout/modif/suppr ; consultation libre) ====== */
-var APP_PASSWORD="elizabeth2026",authed=false,authCb=null;
+var APP_PASSWORD="elizabeth2026",authed=(function(){try{return sessionStorage.getItem("eh_auth")==="1"}catch(e){return false}})(),authCb=null;
 var authm=document.getElementById("authm"),authp=document.getElementById("authp"),authe=document.getElementById("authe");
 function requireAuth(cb){if(authed){cb();return}authCb=cb;if(authe)authe.textContent="";if(authp)authp.value="";if(authm){authm.classList.add("show");setTimeout(function(){authp.focus()},60)}else cb()}
 function closeAuth(){if(authm)authm.classList.remove("show");authCb=null}
-function tryAuth(){if(authp.value===APP_PASSWORD){authed=true;authm.classList.remove("show");var cb=authCb;authCb=null;if(cb)cb()}else{authe.textContent="Mot de passe incorrect.";authp.select()}}
+function tryAuth(){if(authp.value===APP_PASSWORD){authed=true;try{sessionStorage.setItem("eh_auth","1")}catch(e){}authm.classList.remove("show");var cb=authCb;authCb=null;if(cb)cb()}else{authe.textContent="Mot de passe incorrect.";authp.select()}}
 if(authm){document.getElementById("authok").onclick=tryAuth;document.getElementById("authno").onclick=closeAuth;
 authp.onkeydown=function(e){if(e.key=="Enter"){e.preventDefault();tryAuth()}else if(e.key=="Escape")closeAuth()};
 authm.onclick=function(e){if(e.target===authm)closeAuth()}}
@@ -293,6 +309,40 @@ if(!list.length){el.innerHTML='<p style="color:var(--soft);font-size:14px;margin
 el.innerHTML='<h3 style="font-size:16px;margin:28px 0 10px">Programmes en base ('+list.length+')</h3><div style="max-height:520px;overflow:auto;border:1px solid var(--line);border-radius:12px"><table><thead><tr><th>Ville</th><th>Quartier</th><th>Vente</th><th>Loyer</th><th></th></tr></thead><tbody>'+list.map(function(p){return '<tr><td><b>'+p.v+'</b></td><td>'+(p.q||"")+'</td><td>'+(p.pv?euro(p.pv)+" &euro;":"-")+'</td><td>'+(p.l1?e1(p.l1)+" &euro;":"-")+'</td><td style="white-space:nowrap"><button class="edit" data-id="'+p.id+'">Modifier</button><button class="del" data-id="'+p.id+'">Suppr</button></td></tr>'}).join("")+'</tbody></table></div>';
 [].forEach.call(el.querySelectorAll(".edit"),function(b){b.onclick=function(){loadEdit(+b.dataset.id)}});
 [].forEach.call(el.querySelectorAll(".del"),function(b){b.onclick=function(){delProg(+b.dataset.id)}})}
+
+/* ====== ETUDE AUTO (scraping SeLoger via Edge Function scrape-etude) ====== */
+var EA_FN="https://wywndgujgtyyzzhviagu.supabase.co/functions/v1/scrape-etude";
+var EA_KEY="sb_publishable_X0-vzzI4TjUyK2UBboENqw_iH1GT6Rw";
+var eaRun=document.getElementById("ea-run"),eaResult=document.getElementById("ea-result");
+function eaEsc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]})}
+function eaDate(iso){try{var d=new Date(iso);return d.toLocaleDateString("fr-FR")+" a "+d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}catch(e){return eaEsc(iso)}}
+/* loyer/m2 (location) en 1 decimale ; prix/m2 (vente) en entier ; null -> n/d */
+function eaPrix(x,tr){if(x==null)return '<span style="color:var(--soft)">n/d</span>';return (tr=="vente"?euro(x):e1(x))+" &euro;"}
+function eaLoading(){return '<div class="card" style="padding:36px;text-align:center"><div class="spinner"></div><p style="margin-top:18px;font-weight:700">Etude en cours, analyse des annonces SeLoger&hellip;</p><p style="color:var(--soft);font-size:14px;margin-top:4px">Cela prend generalement 1 a 3 minutes. Merci de patienter, ne fermez pas la page.</p></div>'}
+function eaError(msg){return '<div class="card" style="padding:28px"><div style="font-size:30px">&#9888;&#65039;</div><h3 style="margin:8px 0 4px">Etude impossible</h3><p style="color:var(--soft)">'+eaEsc(msg)+'</p><p style="color:var(--soft);font-size:14px;margin-top:8px">Reessayez dans un instant, ou avec une autre ville / transaction.</p></div>'}
+function eaFiche(j){
+var nb=j.annoncesRetenues!=null?j.annoncesRetenues:(j.annoncesTrouvees||0);
+if(!j.global||!nb){return '<div class="card" style="padding:28px"><div style="font-size:30px">&#128269;</div><h3 style="margin:8px 0 4px">Aucune annonce exploitable</h3><p style="color:var(--soft)">'+eaEsc(j.message||"Aucune annonce trouvee pour ces criteres.")+'</p></div>'}
+var tr=j.transaction=="vente"?"Vente":"Location",unit=j.transaction=="vente"?"&euro;/m&sup2;":"&euro;/m&sup2;/mois";
+var c1=j.transaction=="vente"?"Prix/m&sup2; pondere":"Loyer/m&sup2; CC",c2=j.transaction=="vente"?"&mdash;":"Loyer/m&sup2; HC";
+var head='<div class="eahead"><div class="k">Etude de marche &middot; SeLoger</div><h2>'+eaEsc(j.ville)+(j.quartier?' &middot; '+eaEsc(j.quartier):'')+'</h2><div class="s">'+tr+' &middot; '+nb+' annonce'+(nb>1?'s':'')+' analysee'+(nb>1?'s':'')+' &middot; '+eaDate(j.scrapedAt)+'</div></div>';
+function row(label,s,cls){return '<tr'+(cls?' class="'+cls+'"':'')+'><td><b>'+label+'</b></td><td>'+s.nb_annonces+'</td><td>'+e1(s.surface_moyenne)+' m&sup2;</td><td>'+eaPrix(s.prix_m2_cc_pondere,j.transaction)+'</td><td>'+eaPrix(s.prix_m2_hc_pondere,j.transaction)+'</td><td>'+eaPrix(s.prix_m2_cc_moyen,j.transaction)+'</td></tr>'}
+var body="";["T1","T2","T3","T4","T5","T6","autre"].forEach(function(t){var s=j.parTypologie&&j.parTypologie[t];if(s)body+=row(t=="autre"?"Autre":t,s)});
+body+=row("Global",j.global,"ea-global");
+var table='<div class="dl" style="margin-top:0;padding:0 24px 16px"><table><thead><tr><th>Typologie</th><th>Annonces</th><th>Surface moy.</th><th>'+c1+' ('+unit+')</th><th>'+c2+'</th><th>Prix/m&sup2; moyen</th></tr></thead><tbody>'+body+'</tbody></table></div>';
+var foot='<div style="padding:0 24px 20px;color:var(--soft);font-size:13px">Source : SeLoger &middot; '+(j.transaction=="vente"?"prix de vente":"loyers charges comprises (CC) et hors charges (HC)")+' ponderes par surface. '+(j.inserted!=null?j.inserted+' annonce'+(j.inserted>1?'s':'')+' enregistree'+(j.inserted>1?'s':'')+' en base.':'')+'</div>';
+return '<div class="card" id="ea-fiche">'+head+table+foot+'</div>'}
+if(eaRun)eaRun.onclick=function(){
+var ville=document.getElementById("ea-ville").value.trim();if(!ville){toast("Ville obligatoire");return}
+var quartier=document.getElementById("ea-quartier").value.trim();var transaction=document.getElementById("ea-transaction").value;
+requireAuth(function(){
+eaRun.disabled=true;eaRun.textContent="Etude en cours...";eaResult.innerHTML=eaLoading();
+fetch(EA_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+EA_KEY},body:JSON.stringify({ville:ville,quartier:quartier,transaction:transaction})})
+.then(function(r){return r.json().then(function(j){return {ok:r.ok,status:r.status,j:j}},function(){return {ok:r.ok,status:r.status,j:null}})})
+.then(function(res){if(!res.ok||!res.j){throw new Error((res.j&&(res.j.error||res.j.detail))||("Erreur serveur (HTTP "+res.status+")"))}
+eaResult.innerHTML=eaFiche(res.j);if(window.gsap)gsap.from("#ea-fiche",{y:22,opacity:0,duration:.5,ease:"power3.out"})})
+.catch(function(err){console.error("etude auto",err);eaResult.innerHTML=eaError((err&&err.message)||"Echec de l'etude (delai depasse ou reseau).")})
+.then(function(){eaRun.disabled=false;eaRun.textContent="Lancer l'etude"})})};
 
 /* ====== NAVIGATION ====== */
 function show(v,sc){document.querySelectorAll(".view").forEach(function(x){x.classList.remove("active")});var el=document.getElementById("view-"+v);if(el)el.classList.add("active");window.scrollTo(0,0);
