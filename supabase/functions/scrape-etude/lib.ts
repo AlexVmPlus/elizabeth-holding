@@ -57,6 +57,26 @@ export function buildListUrl(seloCode: number, transaction: Transaction, page = 
 }
 
 // ----------------------------------------------------------------------------
+// URL classified-search : SEUL format qui applique un VRAI filtre annee de
+// construction (yearOfConstructionMin). Necessite un code lieu SeLoger au
+// format AD..FR.. (resolu cote serveur via l'autocomplete, cf. index.ts).
+// ----------------------------------------------------------------------------
+export function buildClassifiedUrl(code: string, transaction: Transaction, anneeMin: number): string {
+  const dist = transaction === "vente" ? "Buy" : "Rent";
+  return `https://www.seloger.com/classified-search?distributionTypes=${dist}` +
+    `&estateTypes=Apartment,House&locations=${encodeURIComponent(code)}` +
+    `&yearOfConstructionMin=${anneeMin}`;
+}
+
+// Extrait un code lieu classified-search (format AD<digits>FR<alnum>) d'un
+// texte/JSON (reponse autocomplete). Renvoie le 1er trouve, ou null.
+export function extractClassifiedCode(text: string): string | null {
+  if (!text) return null;
+  const m = text.match(/AD\d+FR[A-Za-z0-9]+/);
+  return m ? m[0] : null;
+}
+
+// ----------------------------------------------------------------------------
 // Parsing d'un bloc de texte (markdown) -> champs d'une annonce.
 // ----------------------------------------------------------------------------
 

@@ -84,6 +84,33 @@ renvoie `creditsEstimes` (`start`/`finalize`).
 Si une page détail échoue, `detail` renvoie `charges:null` (loyer CC conservé) :
 l'annonce reste dans les stats CC, exclue des stats HC.
 
+### Filtre année de construction (`anneeMin`)
+
+`list.htm` **ignore** le filtre année. Seul **classified-search** l'applique
+(`yearOfConstructionMin`), mais il exige un **code lieu `AD..FR..`** (≠ INSEE).
+Quand `anneeMin` est fourni, `start` :
+
+1. résout le code lieu via l'autocomplete SeLoger **côté serveur** (DataDome
+   contourné par Firecrawl), met en cache dans la table **`seloger_places`**
+   (`supabase/migrations/..._seloger_places.sql`) ;
+2. si résolu → scrape `classified-search` (vrai filtre année), pas de post-filtre ;
+3. si **non résolu** → fallback `list.htm` + **post-filtre best-effort** sur le
+   titre (`neuf`/`récent`/année ≥ min) avec warning.
+
+⚠️ **Endpoint autocomplete à confirmer** : la liste `CLASSIFIED_AUTOCOMPLETE`
+(dans `index.ts`) contient des URLs candidates ; recopier l'URL exacte vue dans
+l'onglet Network d'une vraie recherche classified-search. Tant qu'aucune ne
+renvoie de code `AD..FR..`, le fallback best-effort s'applique (jamais de casse).
+
+Table cache (à créer une fois) :
+```sql
+create table if not exists public.seloger_places (
+  ville text primary key, insee text,
+  code_classified text not null, updated_at timestamptz not null default now()
+);
+alter table public.seloger_places enable row level security;
+```
+
 ## Secret
 
 `SUPABASE_URL` et `SUPABASE_SERVICE_ROLE_KEY` sont **injectés automatiquement**.

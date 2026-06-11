@@ -147,7 +147,8 @@ tr.ea-rowlink{cursor:pointer}tr.ea-rowlink:hover td{background:var(--bsoft)}.ea-
 <div class="fld"><label>Transaction</label><select id="ea-transaction"><option value="location">Location</option><option value="vente">Vente</option></select></div>
 <div class="gt" style="margin-top:18px">Filtres (optionnels)</div>
 <div class="g2"><div class="fld"><label>Typologie</label><select id="ea-typologie"><option value="">Toutes</option><option value="T1">Studio/T1</option><option value="T2">T2</option><option value="T3">T3</option><option value="T4">T4</option><option value="T5">T5</option><option value="T6">T6</option></select></div><div class="fld"><label>Nombre max d'annonces</label><select id="ea-max"><option value="20">20</option><option value="30" selected>30</option><option value="50">50</option><option value="100">100</option><option value="toutes">Toutes (~25/page)</option></select></div></div>
-<div class="fld"><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="ea-neuf" style="accent-color:var(--blue);width:16px;height:16px;margin:0">Neuf uniquement</label><span class="hint" style="display:block;margin-top:4px">Logements neufs (selon SeLoger)</span></div>
+<div class="g2"><div class="fld"><label>Annee de construction min</label><input id="ea-annee" type="number" min="1900" max="2030" placeholder="ex. 2020 (neuf/recent)"><span class="hint" style="display:block;margin-top:4px">Filtre les programmes recents (&ge; cette annee)</span></div>
+<div class="fld"><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;margin-top:24px"><input type="checkbox" id="ea-neuf" style="accent-color:var(--blue);width:16px;height:16px;margin:0">Neuf uniquement</label><span class="hint" style="display:block;margin-top:4px">Logements neufs (selon SeLoger)</span></div></div>
 <button id="ea-run" class="btn bp" style="width:100%;margin-top:8px">Lancer l'etude</button>
 <p class="hint" style="margin:14px 0 0">&#128274; Le lancement est protege par mot de passe (consommation de credit). La consultation du site reste libre.</p>
 </div>
@@ -361,6 +362,7 @@ var cP=vente?"Prix":"Loyer CC",cC=vente?"&mdash;":"Charges",cH=vente?"&mdash;":"
 var table='<div class="dl" style="margin-top:0;padding:0 18px 14px"><div style="max-height:540px;overflow:auto;border:1px solid var(--line);border-radius:12px"><table><thead><tr><th>Type</th><th>Surface</th><th>'+cP+'</th><th>'+cC+'</th><th>'+cH+'</th><th>'+(vente?"Prix/m&sup2;":"Loyer/m&sup2; CC")+'</th><th>'+(vente?"&mdash;":"Loyer/m&sup2; HC")+'</th><th>DPE</th><th>Quartier</th><th></th></tr></thead><tbody>'+body+'</tbody></table></div></div>';
 var notes=[];if(j.filtres){var f=j.filtres;
 if(f.typologie)notes.push("typologie "+f.typologie);
+if(f.anneeMin)notes.push("annee &ge; "+f.anneeMin);
 if(f.neufOnly)notes.push("neuf uniquement");}
 var filtreLine=notes.length?'<div style="padding:0 24px 6px;color:var(--soft);font-size:13px">Filtres : '+notes.join(" &middot; ")+'</div>':'';
 var foot='<div style="padding:6px 24px 18px;color:var(--soft);font-size:13px">Source : SeLoger &middot; vue de verification brute (chaque ligne ouvre l\'annonce). '+(j.inserted!=null?j.inserted+' annonce'+(j.inserted>1?'s':'')+' enregistree'+(j.inserted>1?'s':'')+' en base.':'')+'</div>';
@@ -408,6 +410,7 @@ var ville=document.getElementById("ea-ville").value.trim();if(!ville){toast("Vil
 var body={phase:"start",ville:ville,quartier:document.getElementById("ea-quartier").value.trim(),transaction:document.getElementById("ea-transaction").value};
 var typo=document.getElementById("ea-typologie").value;if(typo)body.typologie=typo;
 var maxSel=document.getElementById("ea-max").value;body.maxItems=(maxSel==="toutes")?100:(parseInt(maxSel,10)||30);
+var annee=eaVal("ea-annee");if(annee!=null)body.anneeMin=annee;
 if(document.getElementById("ea-neuf").checked)body.neufOnly=true;
 requireAuth(function(){eaRun.disabled=true;eaRun.textContent="Lancement…";eaResult.innerHTML=eaProgress("Recuperation de la liste d'annonces…",null);
 eaApi(body).then(function(res){

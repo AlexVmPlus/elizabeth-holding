@@ -1,8 +1,10 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   annonceToRow,
+  buildClassifiedUrl,
   buildListUrl,
   detailResult,
+  extractClassifiedCode,
   matchesAnnee,
   matchesNeuf,
   matchesTypologie,
@@ -53,6 +55,40 @@ Deno.test("buildListUrl : projects, types, places, pagination", () => {
   const u2 = buildListUrl(330063, "vente", 2);
   assertEquals(u2.includes("projects=2"), true);
   assertEquals(u2.includes("&LISTING-LISTpg=2"), true);
+});
+
+Deno.test("buildClassifiedUrl : filtre annee yearOfConstructionMin", () => {
+  const u = buildClassifiedUrl("AD08FR31096", "location", 2020);
+  assertEquals(u.includes("distributionTypes=Rent"), true);
+  assertEquals(u.includes("estateTypes=Apartment,House"), true);
+  assertEquals(u.includes("locations=AD08FR31096"), true);
+  assertEquals(u.includes("yearOfConstructionMin=2020"), true);
+  assertEquals(buildClassifiedUrl("AD08FR1", "vente", 2015).includes("distributionTypes=Buy"), true);
+});
+
+Deno.test("extractClassifiedCode : code AD..FR.. dans un JSON/texte", () => {
+  assertEquals(extractClassifiedCode('{"id":"AD08FR31096","label":"Bordeaux"}'), "AD08FR31096");
+  assertEquals(extractClassifiedCode("... locations=AD08FR1977 ..."), "AD08FR1977");
+  assertEquals(extractClassifiedCode("aucun code ici"), null);
+  assertEquals(extractClassifiedCode(""), null);
+});
+
+Deno.test("parseAnnonces : meme parsing pour classified-search (markdown)", () => {
+  // markdown facon classified-search : memes liens /annonces/ + prix/surface
+  const md = `Resultats\n\n[Appartement 2 pièces 48 m² neuf](https://www.seloger.com/annonces/locations/appartement/bordeaux-33/x/300.htm)\n980 € CC/mois\n\n[Studio 22 m²](https://www.seloger.com/annonces/locations/appartement/bordeaux-33/y/301.htm)\n640 €`;
+  const a = parseAnnonces(md, []);
+  assertEquals(a.length, 2);
+  assertEquals(a[0].loyer, 980);
+  assertEquals(a[0].surface, 48);
+  assertEquals(a[1].pieces, 1); // studio
+});
+
+Deno.test("matchesAnnee : fallback best-effort (mots-cles annee/neuf)", () => {
+  assertEquals(matchesAnnee("Appartement neuf", 2020), true);
+  assertEquals(matchesAnnee("Programme 2024", 2020), true);
+  assertEquals(matchesAnnee("Immeuble 1995", 2020), false);
+  assertEquals(matchesAnnee("T2 standard", 2020), false); // pas d'indice -> exclu
+  assertEquals(matchesAnnee("T2 standard", null), true); // pas de filtre -> garde
 });
 
 Deno.test("parseLoyer : euros avec espaces/insecables", () => {

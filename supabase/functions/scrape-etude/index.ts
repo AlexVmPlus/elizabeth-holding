@@ -14,8 +14,10 @@
 
 import {
   annonceToRow,
+  buildClassifiedUrl,
   buildListUrl,
   detailResult,
+  extractClassifiedCode,
   matchesAnnee,
   matchesNeuf,
   matchesTypologie,
@@ -100,6 +102,75 @@ async function fcScrape(url: string, key: string, formats: string[], waitFor: nu
   const j = await r.json();
   if (!j?.success) throw new Error(`Firecrawl success=false: ${JSON.stringify(j?.error || j).slice(0, 200)}`);
   return (j.data || {}) as Record<string, unknown>;
+}
+
+// ----------------------------------------------------------------------------
+// RESOLUTION DU CODE LIEU classified-search (AD..FR..) — cote serveur.
+// L'autocomplete renvoyant ces codes est protege par DataDome -> on passe par
+// Firecrawl (qui contourne DataDome) ; fetch direct en secours.
+// /!\ ENDPOINT A CONFIRMER : recopier l'URL exacte vue dans l'onglet Network
+//     d'une vraie recherche classified-search sur seloger.com. Le 1er endpoint
+//     qui renvoie un code AD..FR.. gagne ; sinon -> fallback list.htm.
+// ----------------------------------------------------------------------------
+const CLASSIFIED_AUTOCOMPLETE: Array<{ url: (v: string) => string; via: "firecrawl" | "fetch" }> = [
+  { url: (v) => `https://www.seloger.com/search-mfe/api/v1/locations?text=${encodeURIComponent(v)}`, via: "firecrawl" },
+  { url: (v) => `https://www.seloger.com/search-bff/api/v1/locations/autocomplete?text=${encodeURIComponent(v)}`, via: "firecrawl" },
+];
+
+async function placeCacheGet(env: Env, ville: string): Promise<string | null> {
+  try {
+    const q = `${env.supaUrl}/rest/v1/seloger_places?ville=eq.${encodeURIComponent(ville.toLowerCase())}&select=code_classified&limit=1`;
+    const r = await fetch(q, { headers: { "apikey": env.serviceKey, "Authorization": `Bearer ${env.serviceKey}` } });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    return (Array.isArray(rows) && rows[0]?.code_classified) ? String(rows[0].code_classified) : null;
+  } catch {
+    return null; // table absente / erreur -> on resoudra a nouveau
+  }
+}
+
+async function placeCachePut(env: Env, ville: string, insee: string | null, code: string): Promise<void> {
+  try {
+    await fetch(`${env.supaUrl}/rest/v1/seloger_places`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": env.serviceKey,
+        "Authorization": `Bearer ${env.serviceKey}`,
+        "Prefer": "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify({ ville: ville.toLowerCase(), insee, code_classified: code, updated_at: new Date().toISOString() }),
+    });
+  } catch { /* cache best-effort */ }
+}
+
+async function resolveClassifiedCode(env: Env, ville: string, insee: string | null): Promise<string | null> {
+  const cached = await placeCacheGet(env, ville);
+  if (cached) {
+    console.log(`[annee] code lieu (cache) ${ville} -> ${cached}`);
+    return cached;
+  }
+  for (const ep of CLASSIFIED_AUTOCOMPLETE) {
+    try {
+      let text = "";
+      if (ep.via === "firecrawl") {
+        const d = await fcScrape(ep.url(ville), env.fcKey, ["markdown"], 2000);
+        text = typeof d.markdown === "string" ? d.markdown : JSON.stringify(d);
+      } else {
+        const r = await fetch(ep.url(ville), { headers: { "User-Agent": "Mozilla/5.0" } });
+        text = r.ok ? await r.text() : "";
+      }
+      const code = extractClassifiedCode(text);
+      if (code) {
+        console.log(`[annee] code lieu resolu ${ville} -> ${code}`);
+        await placeCachePut(env, ville, insee, code);
+        return code;
+      }
+    } catch (e) {
+      console.warn(`[annee] autocomplete echec :`, e instanceof Error ? e.message : e);
+    }
+  }
+  return null;
 }
 
 // --- Cache Supabase (< CACHE_DAYS jours, meme demande) ----------------------
@@ -191,12 +262,13 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   const forceRefresh = body.forceRefresh === true;
   if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
 
+  // applyAnnee = false quand l'annee est deja filtree cote serveur (classified).
   // deno-lint-ignore no-explicit-any
-  const applyFilters = (arr: any[]) => {
+  const applyFilters = (arr: any[], applyAnnee = true) => {
     let out = arr;
     if (typoFilter) out = out.filter((r) => matchesTypologie(r.nb_pieces, typoFilter));
     if (neufOnly) out = out.filter((r) => matchesNeuf(r.titre));
-    if (anneeMin) {
+    if (anneeMin && applyAnnee) {
       const f = out.filter((r) => matchesAnnee(r.titre, anneeMin));
       out = f.length ? f : out; // best-effort : ne vide jamais tout
     }
@@ -229,9 +301,23 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
     }
   }
 
-  // 1 scrape : page liste
-  const searchUrl = buildListUrl(seloCode, transaction, 1);
-  console.log(`[start] Firecrawl liste : ${searchUrl}`);
+  // Choix de l'URL : classified-search (vrai filtre annee) si anneeMin fourni ET
+  // code lieu resolu ; sinon list.htm (+ post-filtre best-effort si anneeMin).
+  let searchUrl = buildListUrl(seloCode, transaction, 1);
+  let anneeServerSide = false;
+  if (anneeMin) {
+    const code = await resolveClassifiedCode(env, city.nom, city.citycode);
+    if (code) {
+      searchUrl = buildClassifiedUrl(code, transaction, anneeMin);
+      anneeServerSide = true;
+      console.log(`[start] classified-search annee>=${anneeMin} : ${searchUrl}`);
+    } else {
+      console.warn(`[start] filtre annee best-effort (code lieu non resolu) -> list.htm + post-filtre`);
+    }
+  }
+
+  // 1 scrape : page liste OU classified-search (meme parsing markdown)
+  console.log(`[start] Firecrawl : ${searchUrl}`);
   const data = await fcScrape(searchUrl, env.fcKey, ["markdown", "links"], 6000);
   const md = typeof data.markdown === "string" ? data.markdown : "";
   const raw = parseAnnonces(md, data.links);
@@ -240,7 +326,7 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   const scrapedAt = new Date().toISOString();
   const ctx = { ville: city.nom, quartier: quartier || null, code_postal: city.codePostal, transaction, scrapedAt };
   let rows: Row[] = raw.map((a) => annonceToRow(a, ctx)).filter((r): r is Row => r !== null && !!r.url);
-  rows = applyFilters(rows).slice(0, maxItems);
+  rows = applyFilters(rows, !anneeServerSide).slice(0, maxItems);
   const partielles = rows.map(toAnnonce);
   console.log(`[start] ${partielles.length} annonces retenues`);
 
