@@ -87,6 +87,40 @@ footer{border-top:1px solid var(--line);padding:36px 0;margin-top:30px}.fi{displ
 tr.ea-global td{background:var(--bg);font-weight:800;border-top:2px solid var(--line)}
 tr.ea-rowlink{cursor:pointer}tr.ea-rowlink:hover td{background:var(--bsoft)}.ea-link{color:var(--blue);font-weight:700;white-space:nowrap}
 .ea-pill{display:inline-block;min-width:22px;text-align:center;font-weight:800;padding:2px 8px;border-radius:7px;background:var(--bsoft);color:var(--deep)}
+/* ====== FICHE D'ETUDE (rendu pro) ====== */
+.ea-fichedoc{overflow:hidden}
+.eafh{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:26px 28px;background:linear-gradient(115deg,var(--deep),var(--blue));color:#fff;flex-wrap:wrap}
+.eafh .br{display:flex;align-items:center;gap:13px}
+.eafh .lg{width:46px;height:46px;border-radius:12px;background:rgba(255,255,255,.16);display:grid;place-items:center;font-weight:900;font-size:20px;border:1px solid rgba(255,255,255,.25)}
+.eafh .nm{font-weight:800;font-size:17px;line-height:1.1}.eafh .nm small{display:block;font-weight:500;font-size:11px;opacity:.8;letter-spacing:.05em;text-transform:uppercase}
+.eafh h2{font-size:26px;margin:0;letter-spacing:-.02em}.eafh .meta{text-align:right;font-size:13px;opacity:.92}
+.ea-sec{padding:22px 28px;border-top:1px solid var(--line)}.ea-sec h3{font-size:16px;margin-bottom:14px;display:flex;align-items:center;gap:9px}.ea-sec h3 .ic{color:var(--blue)}
+.ea-tool{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px 16px}
+.ea-tool label{font-size:13px;font-weight:600;color:var(--soft)}
+.ea-tool input{width:80px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-family:var(--f);font-size:15px;font-weight:700;color:var(--deep);text-align:center}
+.ea-ftab{width:100%;border-collapse:collapse;font-size:14px}.ea-ftab th,.ea-ftab td{padding:10px 11px;text-align:right;border-bottom:1px solid var(--line)}.ea-ftab th:first-child,.ea-ftab td:first-child{text-align:left}
+.ea-ftab th{font-size:11px;text-transform:uppercase;color:var(--soft);font-weight:700;letter-spacing:.03em}
+.ea-ftab tr.gl td{background:var(--bsoft);font-weight:800;border-top:2px solid var(--blue)}
+.ea-bars{display:flex;flex-direction:column;gap:9px;margin-top:16px}
+.ea-barrow{display:grid;grid-template-columns:42px 1fr 78px;align-items:center;gap:10px;font-size:13px}
+.ea-bartrack{height:22px;background:var(--bg);border-radius:7px;overflow:hidden}
+.ea-barfill{height:100%;border-radius:7px;background:linear-gradient(90deg,var(--blue),var(--teal));width:0;transition:width .9s cubic-bezier(.2,.8,.2,1)}
+.ea-statgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:13px}@media(max-width:700px){.ea-statgrid{grid-template-columns:repeat(2,1fr)}}
+.ea-stat{background:var(--bg);border:1px solid var(--line);border-radius:13px;padding:15px 16px}
+.ea-stat .t{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--soft)}
+.ea-stat .v{font-size:24px;font-weight:800;color:var(--deep);margin-top:5px;letter-spacing:-.02em}.ea-stat .v small{font-size:14px;font-weight:600;color:var(--soft)}
+.ea-stat .v.nc{color:var(--soft);font-size:18px}
+.ea-cmp{display:flex;align-items:center;gap:18px;flex-wrap:wrap;background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+.ea-cmp .big{font-size:30px;font-weight:800;color:var(--deep)}
+.ea-badge{display:inline-flex;align-items:center;gap:6px;font-weight:800;font-size:15px;padding:7px 14px;border-radius:30px}
+.ea-badge.up{background:#ffe9ef;color:var(--rose)}.ea-badge.dn{background:#e3fbef;color:#0a9a55}.ea-badge.eq{background:var(--bsoft);color:var(--deep)}
+.ea-note{color:var(--soft);font-size:12.5px;line-height:1.5}
+@media print{
+  nav,footer,.toast,#ea-result>.card:not(#ea-fichedoc),#ea-result>div:not(#ea-fiche-zone),.no-print{display:none !important}
+  body{background:#fff}.fp{padding:0}
+  #ea-fichedoc{box-shadow:none;border:1px solid #ccc;break-inside:avoid}
+  .ea-sec{break-inside:avoid}@page{margin:12mm}
+}
 .leaflet-popup-content{font-family:var(--f)}.mp b{color:var(--deep)}.mp .r{font-size:13px;color:var(--soft)}
 </style></head><body>
 <nav class="nav"><div class="c ni">
@@ -320,25 +354,78 @@ el.innerHTML='<h3 style="font-size:16px;margin:28px 0 10px">Programmes en base (
 var EA_FN="https://wywndgujgtyyzzhviagu.supabase.co/functions/v1/scrape-etude";
 var EA_KEY="sb_publishable_X0-vzzI4TjUyK2UBboENqw_iH1GT6Rw";
 var eaRun=document.getElementById("ea-run"),eaResult=document.getElementById("ea-result");
-var eaState={annonces:[],ctx:null,total:0,done:0,stopped:false,credits:null};
 function eaEsc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]})}
 function eaVal(id){var el=document.getElementById(id);if(!el)return null;var s=(el.value||"").trim();if(s==="")return null;var n=parseFloat(s);return isNaN(n)?null:n}
 function eaDate(iso){try{var d=new Date(iso);return d.toLocaleDateString("fr-FR")+" a "+d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}catch(e){return eaEsc(iso)}}
 /* loyer/m2 (location) en 1 decimale ; prix/m2 (vente) en entier ; null -> n/d */
 function eaPrix(x,tr){if(x==null)return '<span style="color:var(--soft)">n/d</span>';return (tr=="vente"?euro(x):e1(x))+" &euro;"}
 function eaError(msg){return '<div class="card" style="padding:28px"><div style="font-size:30px">&#9888;&#65039;</div><h3 style="margin:8px 0 4px">Etude impossible</h3><p style="color:var(--soft)">'+eaEsc(msg)+'</p><p style="color:var(--soft);font-size:14px;margin-top:8px">Reessayez dans un instant, ou avec une autre ville / transaction.</p></div>'}
-function eaFiche(j){
-var nb=j.annoncesRetenues!=null?j.annoncesRetenues:(j.annoncesTrouvees||0);
-if(!j.global||!nb){return '<div class="card" style="padding:28px"><div style="font-size:30px">&#128269;</div><h3 style="margin:8px 0 4px">Aucune annonce exploitable</h3><p style="color:var(--soft)">'+eaEsc(j.message||"Aucune annonce trouvee pour ces criteres.")+'</p></div>'}
-var tr=j.transaction=="vente"?"Vente":"Location",unit=j.transaction=="vente"?"&euro;/m&sup2;":"&euro;/m&sup2;/mois";
-var c1=j.transaction=="vente"?"Prix/m&sup2; pondere":"Loyer/m&sup2; CC",c2=j.transaction=="vente"?"&mdash;":"Loyer/m&sup2; HC";
-var head='<div class="eahead"><div class="k">Etude de marche &middot; SeLoger</div><h2>'+eaEsc(j.ville)+(j.quartier?' &middot; '+eaEsc(j.quartier):'')+'</h2><div class="s">'+tr+' &middot; '+nb+' annonce'+(nb>1?'s':'')+' analysee'+(nb>1?'s':'')+' &middot; '+eaDate(j.scrapedAt)+'</div></div>';
-function row(label,s,cls){return '<tr'+(cls?' class="'+cls+'"':'')+'><td><b>'+label+'</b></td><td>'+s.nb_annonces+'</td><td>'+e1(s.surface_moyenne)+' m&sup2;</td><td>'+eaPrix(s.prix_m2_cc_pondere,j.transaction)+'</td><td>'+eaPrix(s.prix_m2_hc_pondere,j.transaction)+'</td><td>'+eaPrix(s.prix_m2_cc_moyen,j.transaction)+'</td></tr>'}
-var body="";["T1","T2","T3","T4","T5","T6","autre"].forEach(function(t){var s=j.parTypologie&&j.parTypologie[t];if(s)body+=row(t=="autre"?"Autre":t,s)});
-body+=row("Global",j.global,"ea-global");
-var table='<div class="dl" style="margin-top:0;padding:0 24px 16px"><table><thead><tr><th>Typologie</th><th>Annonces</th><th>Surface moy.</th><th>'+c1+' ('+unit+')</th><th>'+c2+'</th><th>Prix/m&sup2; moyen</th></tr></thead><tbody>'+body+'</tbody></table></div>';
-var foot='<div style="padding:0 24px 20px;color:var(--soft);font-size:13px">Source : SeLoger &middot; '+(j.transaction=="vente"?"prix de vente":"loyers charges comprises (CC) et hors charges (HC)")+' ponderes par surface. '+(j.inserted!=null?j.inserted+' annonce'+(j.inserted>1?'s':'')+' enregistree'+(j.inserted>1?'s':'')+' en base.':'')+'</div>';
-return '<div class="card" id="ea-fiche">'+head+table+foot+'</div>'}
+/* ====== FICHE D'ETUDE COMPLETE (loyers reels + charges estimees + INSEE) ====== */
+var EA_SUPA="https://wywndgujgtyyzzhviagu.supabase.co/rest/v1";
+var eaFD=null; /* etat fiche : {res, insee, ratio, ref, _stats} */
+function eaNc(){return '<div class="v nc">n.c.</div>'}
+/* population live (geo.api) + socio-eco (table insee_communes), tolerant */
+function eaFetchInsee(ville){
+return fetch("https://geo.api.gouv.fr/communes?nom="+encodeURIComponent(ville)+"&fields=code,population&boost=population&limit=1").then(function(r){return r.json()}).then(function(a){
+var c=(a&&a[0])||{},insee=c.code||null,pop=c.population!=null?c.population:null;
+if(!insee)return {insee:null,population:pop};
+return fetch(EA_SUPA+"/insee_communes?insee=eq."+insee+"&select=*&limit=1",{headers:{apikey:EA_KEY,Authorization:"Bearer "+EA_KEY}}).then(function(r){return r.ok?r.json():[]}).then(function(rows){var s=(rows&&rows[0])||{};
+return {insee:insee,population:(s.population!=null?s.population:pop),pct_prop:s.pct_proprietaires,pct_loc:s.pct_locataires,evolution:s.evolution_pop,revenu:s.revenu_median,recents:s.pct_logements_recents}}).catch(function(){return {insee:insee,population:pop}})
+}).catch(function(){return {insee:null,population:null}})}
+/* compteurs animes (GSAP) sur les chiffres cles */
+function eaAnimCounters(){if(!window.gsap)return;[].forEach.call(document.querySelectorAll("#ea-fichedoc [data-count]"),function(el){var to=parseFloat(el.getAttribute("data-count"))||0,dec=parseInt(el.getAttribute("data-dec")||"0",10),suf=el.getAttribute("data-suf")||"",o={v:0};gsap.to(o,{v:to,duration:1.1,ease:"power2.out",onUpdate:function(){el.textContent=(dec?e1(o.v):euro(o.v))+suf}})})}
+/* recalcul en direct des charges/HC quand le ratio change (sans re-render) */
+function eaUpdateCharges(){if(!eaFD||!eaFD._stats)return;var ratio=eaFD.ratio,st=eaFD._stats;
+Object.keys(st).forEach(function(t){var s=st[t],chMens=Math.round(ratio*s.surf),hcM2=Math.max(0,s.ccM2-ratio),hcMens=Math.round(hcM2*s.surf);
+var a=document.getElementById("ch-"+t);if(a)a.innerHTML=euro(chMens)+" &euro;";
+var b=document.getElementById("hcm-"+t);if(b)b.innerHTML=euro(hcMens)+" &euro;";
+var d=document.getElementById("hc2-"+t);if(d)d.innerHTML=e1(hcM2)+" &euro;"});
+var n=document.getElementById("ea-ratio-note");if(n)n.textContent=e1(ratio)}
+/* construit le HTML de la fiche complete */
+function eaBuildFiche(fd){var res=fd.res,insee=fd.insee||{},ratio=fd.ratio,ref=fd.ref,vente=res.transaction=="vente";
+var order=["T1","T2","T3","T4","T5","T6","autre"],stats={},maxM2=0;
+function st(key,s){var o={n:s.nb_annonces,surf:s.surface_moyenne||0,ccM2:s.prix_m2_cc_pondere||0};stats[key]=o;if(o.ccM2>maxM2)maxM2=o.ccM2;return o}
+var nb=res.annoncesRetenues||(res.annonces?res.annonces.length:0);
+var head='<div class="eafh"><div class="br"><div class="lg">EH</div><div class="nm">Elizabeth Holding<small>Intelligence immobiliere</small></div></div>'+
+'<div style="text-align:center;flex:1;min-width:200px"><h2>'+eaEsc(res.ville)+(res.quartier?' &middot; '+eaEsc(res.quartier):'')+'</h2><div style="font-size:13px;opacity:.85;margin-top:3px">Etude de marche '+(vente?"&middot; vente":"locative")+'</div></div>'+
+'<div class="meta">'+eaDate(res.scrapedAt)+'<br>'+nb+' annonce'+(nb>1?'s':'')+' analysee'+(nb>1?'s':'')+'</div></div>';
+var tool='<div class="ea-sec no-print"><div class="ea-tool">'+(vente?'<span class="ea-note">Synthese des prix de vente</span>':'<label>Charges estimees</label><input id="ea-ratio" type="number" step="0.1" min="0" value="'+ratio+'"><span style="font-size:13px;color:var(--soft)">&euro;/m&sup2;/mois</span>')+'<div style="flex:1"></div><button id="ea-print" class="btn bp" style="padding:9px 18px">&#128424;&#65039; Imprimer / PDF</button></div></div>';
+var rowsHtml="";
+function trow(key,label,s,gl){var o=st(key,s),ccMens=Math.round(o.ccM2*o.surf),chMens=Math.round(ratio*o.surf),hcM2=Math.max(0,o.ccM2-ratio),hcMens=Math.round(hcM2*o.surf),cls=gl?' class="gl"':'';
+if(vente)return '<tr'+cls+'><td><b>'+label+'</b></td><td>'+o.n+'</td><td>'+e1(o.surf)+' m&sup2;</td><td>'+euro(ccMens)+' &euro;</td><td>'+e1(o.ccM2)+' &euro;</td></tr>';
+return '<tr'+cls+'><td><b>'+label+'</b></td><td>'+o.n+'</td><td>'+e1(o.surf)+' m&sup2;</td><td>'+euro(ccMens)+' &euro;</td><td>'+e1(o.ccM2)+' &euro;</td><td id="ch-'+key+'">'+euro(chMens)+' &euro;</td><td id="hcm-'+key+'">'+euro(hcMens)+' &euro;</td><td id="hc2-'+key+'">'+e1(hcM2)+' &euro;</td></tr>'}
+order.forEach(function(t){var s=res.parTypologie&&res.parTypologie[t];if(s)rowsHtml+=trow(t,t=="autre"?"Autre":t,s,false)});
+if(res.global)rowsHtml+=trow("GLOBAL","Global",res.global,true);
+var barsHtml="";order.concat(["GLOBAL"]).forEach(function(t){var o=stats[t];if(!o)return;var w=maxM2?Math.round(o.ccM2/maxM2*100):0;barsHtml+='<div class="ea-barrow"><b>'+(t=="GLOBAL"?"Tous":t)+'</b><div class="ea-bartrack"><div class="ea-barfill" data-w="'+w+'"></div></div><span style="text-align:right">'+e1(o.ccM2)+' &euro;/m&sup2;</span></div>'});
+var heads=vente?'<th>Typologie</th><th>Annonces</th><th>Surface moy.</th><th>Prix moy. (&euro;/mois)</th><th>&euro;/m&sup2;</th>':'<th>Typologie</th><th>Annonces</th><th>Surface moy.</th><th>Loyer CC (&euro;/mois)</th><th>&euro;/m&sup2; CC</th><th>Charges est.</th><th>Loyer HC (&euro;/mois)</th><th>&euro;/m&sup2; HC</th>';
+var loyers='<div class="ea-sec"><h3><span class="ic">&#128202;</span> Loyers par typologie</h3><div style="overflow-x:auto"><table class="ea-ftab"><thead><tr>'+heads+'</tr></thead><tbody>'+rowsHtml+'</tbody></table></div><div class="ea-bars">'+barsHtml+'</div>'+(vente?'':'<div class="ea-note" style="margin-top:12px">&#9432; Charges <b>estimees</b> &asymp; <span id="ea-ratio-note">'+e1(ratio)+'</span> &euro;/m&sup2;/mois (modifiable ci-dessus). Loyer HC = loyer CC &minus; charges estimees. Loyers CC reels, ponderes par surface (source SeLoger).</div>')+'</div>';
+function statc(t,inner){return '<div class="ea-stat"><div class="t">'+t+'</div>'+inner+'</div>'}
+var pop=insee.population,prop=insee.pct_prop,loc=insee.pct_loc,evo=insee.evolution,rev=insee.revenu,rec=insee.recents,hasSocio=(prop!=null||rev!=null||loc!=null);
+var inseeBlk='<div class="ea-sec"><h3><span class="ic">&#127962;</span> Donnees commune &middot; '+eaEsc(res.ville)+'</h3><div class="ea-statgrid">'+
+statc("Population",pop!=null?'<div class="v" data-count="'+pop+'">'+euro(pop)+'</div>':eaNc())+
+statc("Evolution pop.",evo!=null?'<div class="v">'+(evo>0?'+':'')+e1(evo)+'<small> %/an</small></div>':eaNc())+
+statc("Revenu median",rev!=null?'<div class="v" data-count="'+rev+'" data-dec="0" data-suf=" €">'+euro(rev)+' &euro;</div>':eaNc())+
+statc("Proprietaires",prop!=null?'<div class="v">'+e1(prop)+'<small> %</small></div>':eaNc())+
+statc("Locataires",loc!=null?'<div class="v">'+e1(loc)+'<small> %</small></div>':eaNc())+
+statc("Logements recents",rec!=null?'<div class="v">'+e1(rec)+'<small> %</small></div>':eaNc())+
+'</div><div class="ea-note" style="margin-top:10px">Sources : population legale (INSEE via geo.api.gouv.fr)'+(hasSocio?' &middot; recensement &amp; FiLoSoFi (INSEE).':'. Indicateurs socio-economiques : n.c. (enrichissement INSEE en cours).')+'</div></div>';
+var cmp='',g=res.global&&res.global.prix_m2_cc_pondere;
+if(g){var dp=Math.round((g-ref)/ref*1000)/10,cls=Math.abs(dp)<2?"eq":(dp>0?"up":"dn"),ar=dp>0?"&#9650;":(dp<0?"&#9660;":"&#9679;");
+cmp='<div class="ea-sec"><h3><span class="ic">&#127919;</span> Comparaison au marche national</h3><div class="ea-cmp"><div><div style="font-size:12px;color:var(--soft);text-transform:uppercase;font-weight:700">Loyer CC moyen &middot; '+eaEsc(res.ville)+'</div><div class="big" data-count="'+g+'" data-dec="1" data-suf=" €">'+e1(g)+' &euro;</div><div style="font-size:12px;color:var(--soft)">&euro;/m&sup2;/mois</div></div><div class="ea-badge '+cls+'">'+ar+' '+(dp>0?'+':'')+e1(dp)+' %</div><div class="ea-note" style="flex:1;min-width:160px">'+(dp>0?'au-dessus de':(dp<0?'en-dessous de':'aligne sur'))+' la moyenne nationale (&asymp; '+e1(ref)+' &euro;/m&sup2;/mois en location).</div></div></div>'}
+var foot='<div class="ea-sec"><div class="ea-note">Etude generee le '+eaDate(res.scrapedAt)+' par <b>Elizabeth Holding</b> &middot; Loyers : annonces SeLoger ponderees par surface &middot; Charges estimees &middot; Donnees commune : INSEE. Document indicatif, non contractuel.</div></div>';
+fd._stats=stats;
+return '<div class="card ea-fichedoc" id="ea-fichedoc">'+head+tool+loyers+inseeBlk+cmp+foot+'</div>'}
+/* genere la fiche complete (fetch INSEE puis rendu anime) */
+function eaGenerateFiche(res){var z=document.getElementById("ea-fiche-zone");if(!z)return;
+z.innerHTML=eaProgress("Recuperation des donnees INSEE de la commune…",null);
+eaFetchInsee(res.ville).then(function(insee){eaFD={res:res,insee:insee,ratio:2.5,ref:13.5};eaRenderFiche(true)})}
+function eaRenderFiche(animate){var z=document.getElementById("ea-fiche-zone");if(!z||!eaFD)return;
+z.innerHTML=eaBuildFiche(eaFD);
+var ri=document.getElementById("ea-ratio");if(ri)ri.oninput=function(){var v=parseFloat(ri.value);if(!isNaN(v)&&v>=0&&v<60){eaFD.ratio=v;eaUpdateCharges()}};
+var pr=document.getElementById("ea-print");if(pr)pr.onclick=function(){window.print()};
+if(animate&&window.gsap){gsap.from("#ea-fichedoc .eafh, #ea-fichedoc .ea-sec",{y:22,opacity:0,stagger:.07,duration:.5,ease:"power3.out"});eaAnimCounters()}
+setTimeout(function(){[].forEach.call(document.querySelectorAll("#ea-fichedoc .ea-barfill"),function(b){b.style.width=b.getAttribute("data-w")+"%"})},animate?380:30);
+z.scrollIntoView({behavior:"smooth",block:"start"})}
 /* PRE-FICHE : liste brute de toutes les annonces sourcees (verification) */
 function eaPrefiche(j){
 var nb=j.annoncesRetenues!=null?j.annoncesRetenues:((j.annonces&&j.annonces.length)||0);
@@ -372,39 +459,20 @@ function eaProgress(text,credits){return '<div class="card" id="ea-banner" style
 function eaDone(text,credits,fromCache){return '<div class="card" id="ea-banner" style="padding:14px 22px;margin-bottom:16px;border-left:4px solid var(--teal)"><b>&#10003; '+eaEsc(text)+'</b><span style="color:var(--soft);font-size:13px;margin-left:8px">'+(fromCache?'depuis le cache (0 credit)':(credits!=null?'&#8776; '+credits+' credits Firecrawl':''))+'</span></div>'}
 /* appel API (start ou poll) -> json, throw si erreur */
 function eaApi(body){return fetch(EA_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+EA_KEY},body:JSON.stringify(body)}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error((j&&(j.error||j.detail))||("HTTP "+r.status));return j},function(){throw new Error("Reponse invalide (HTTP "+r.status+")")})})}
-/* rend banniere + pre-fiche (+ fiche synthese si fournie) et cable les lignes */
-function eaShow(j,opts){opts=opts||{};var first=!document.getElementById("ea-prefiche");var html=(opts.banner||'')+eaPrefiche(j);if(opts.fiche)html+='<div style="margin-top:20px">'+eaFiche(j)+'</div>';
-eaResult.innerHTML=html;if(first&&window.gsap)gsap.from("#ea-prefiche",{y:18,opacity:0,duration:.45,ease:"power3.out"});
-[].forEach.call(eaResult.querySelectorAll("tr.ea-rowlink"),function(tr){tr.onclick=function(e){if(e.target.closest("a"))return;var u=tr.getAttribute("data-url");if(u)window.open(u,"_blank","noopener")}})}
-function eaSetBanner(html){var b=document.getElementById("ea-banner");if(b)b.outerHTML=html}
-/* banniere de boucle : progression + bouton Arreter + barre + estimation */
-function eaLoopBanner(){var t=eaState.total||0,d=eaState.done||0,pct=t?Math.round(d/t*100):0;
-var mins=Math.max(1,Math.ceil(Math.max(0,(t-d))*15/60));
-return '<div class="card" id="ea-banner" style="padding:16px 22px;margin-bottom:16px"><div style="display:flex;align-items:center;gap:14px"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:0"></div><div style="flex:1"><b>Recuperation des charges… '+d+'/'+t+'</b><div style="color:var(--soft);font-size:13px;margin-top:2px">'+(eaState.credits!=null?'&#8776; '+eaState.credits+' credits':'')+(d<t?' &middot; ~'+mins+' min restantes':'')+'</div></div><button id="ea-stop" class="btn bg2" style="padding:8px 14px">Arreter</button></div><div style="height:6px;background:var(--bsoft);border-radius:4px;margin-top:12px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:var(--blue);transition:width .3s"></div></div></div>'}
-/* rendu pre-fiche + banniere de boucle (+ cablage bouton Arreter) */
-function eaRenderProgress(){var c=eaState.ctx;
-eaShow({annonces:eaState.annonces,transaction:c.transaction,ville:c.ville,quartier:c.quartier,scrapedAt:c.scrapedAt,filtres:c.filtres,annoncesRetenues:eaState.total},{banner:eaLoopBanner()});
-var sb=document.getElementById("ea-stop");if(sb)sb.onclick=function(){eaState.stopped=true;sb.disabled=true;sb.textContent="Arret…"}}
-/* affichage final (cache, vente, finalize) : pre-fiche + synthese */
-function eaFinish(res){var nb=res.annoncesRetenues!=null?res.annoncesRetenues:((res.annonces&&res.annonces.length)||0);
-var credits=res.creditsEstimes!=null?res.creditsEstimes:eaState.credits;
-eaShow(res,{banner:eaDone("Etude complete — "+nb+" annonce"+(nb>1?"s":""),credits,res.fromCache),fiche:true});
+/* cable le clic sur les lignes de la pre-fiche (ouvre l'annonce) */
+function eaWireRows(){[].forEach.call(eaResult.querySelectorAll("tr.ea-rowlink"),function(tr){tr.onclick=function(e){if(e.target.closest("a"))return;var u=tr.getAttribute("data-url");if(u)window.open(u,"_blank","noopener")}})}
+/* resultat du scrape : banniere + pre-fiche + bouton "Generer la fiche complete" */
+var eaLastRes=null;
+function eaShowResult(res){eaLastRes=res;
+var nb=res.annoncesRetenues!=null?res.annoncesRetenues:((res.annonces&&res.annonces.length)||0);
+var banner=eaDone((nb||0)+" annonce"+(nb>1?"s":"")+" recuperee"+(nb>1?"s":""),res.creditsEstimes,res.fromCache);
+var btn=(res.global&&nb)?'<div class="no-print" style="text-align:center;margin:22px 0 6px"><button id="ea-genfiche" class="btn bp" style="padding:14px 30px;font-size:16px">&#128202; Generer la fiche complete</button></div>':'';
+eaResult.innerHTML=banner+eaPrefiche(res)+btn+'<div id="ea-fiche-zone" style="margin-top:8px"></div>';
+if(window.gsap)gsap.from("#ea-prefiche",{y:18,opacity:0,duration:.45,ease:"power3.out"});
+eaWireRows();
+var g=document.getElementById("ea-genfiche");if(g)g.onclick=function(){eaGenerateFiche(eaLastRes)};
 eaRun.disabled=false;eaRun.textContent="Lancer l'etude"}
-/* phase finalize : calcul + insertion */
-function eaFinalize(){var c=eaState.ctx;eaSetBanner(eaProgress("Calcul de la synthese…",eaState.credits));
-eaApi({phase:"finalize",ville:c.ville,quartier:c.quartier,transaction:c.transaction,annonces:eaState.annonces})
-.then(function(res){res.ville=c.ville;res.quartier=c.quartier;res.filtres=c.filtres;eaFinish(res)})
-.catch(function(err){console.error("finalize",err);eaSetBanner(eaError((err&&err.message)||"Echec du calcul de la synthese."));eaRun.disabled=false;eaRun.textContent="Lancer l'etude"})}
-/* boucle SEQUENTIELLE des details (1 annonce a la fois) */
-function eaDetailLoop(i){
-if(eaState.stopped||i>=eaState.annonces.length){eaFinalize();return}
-var a=eaState.annonces[i];
-if(!a.url){eaState.done++;eaRenderProgress();setTimeout(function(){eaDetailLoop(i+1)},10);return}
-eaApi({phase:"detail",url:a.url,loyer_cc:a.loyer_cc,surface:a.surface,nb_pieces:a.nb_pieces})
-.then(function(res){a.charges=res.charges;a.loyer_hc=res.loyer_hc;if(res.prix_m2_cc!=null)a.prix_m2_cc=res.prix_m2_cc;a.prix_m2_hc=res.prix_m2_hc})
-.catch(function(err){console.error("detail",err)})
-.then(function(){eaState.done++;eaRenderProgress();setTimeout(function(){eaDetailLoop(i+1)},250)})}
-/* clic "Lancer l'etude" : start -> boucle detail -> finalize */
+/* clic "Lancer l'etude" : start (1 scrape liste) -> pre-fiche */
 if(eaRun)eaRun.onclick=function(){
 var ville=document.getElementById("ea-ville").value.trim();if(!ville){toast("Ville obligatoire");return}
 var body={phase:"start",ville:ville,quartier:document.getElementById("ea-quartier").value.trim(),transaction:document.getElementById("ea-transaction").value};
@@ -412,14 +480,9 @@ var typo=document.getElementById("ea-typologie").value;if(typo)body.typologie=ty
 var maxSel=document.getElementById("ea-max").value;body.maxItems=(maxSel==="toutes")?100:(parseInt(maxSel,10)||30);
 var annee=eaVal("ea-annee");if(annee!=null)body.anneeMin=annee;
 if(document.getElementById("ea-neuf").checked)body.neufOnly=true;
-requireAuth(function(){eaRun.disabled=true;eaRun.textContent="Lancement…";eaResult.innerHTML=eaProgress("Recuperation de la liste d'annonces…",null);
-eaApi(body).then(function(res){
-if(res.done){eaFinish(res);return}
-eaState={annonces:res.annonces||[],ctx:{ville:res.ville,quartier:res.quartier,transaction:res.transaction,filtres:res.filtres,scrapedAt:res.scrapedAt},total:res.total||((res.annonces||[]).length),done:0,stopped:false,credits:res.creditsEstimes};
-eaRun.textContent="Etude en cours…";eaRenderProgress();
-var est=Math.max(1,Math.ceil(eaState.total*15/60));toast("Pre-fiche prete — recuperation des charges (~"+est+" min)");
-eaDetailLoop(0)})
-.catch(function(err){console.error("start",err);eaResult.innerHTML=eaError((err&&err.message)||"Echec du lancement.");eaRun.disabled=false;eaRun.textContent="Lancer l'etude"})})};
+requireAuth(function(){eaRun.disabled=true;eaRun.textContent="Recuperation…";eaResult.innerHTML=eaProgress("Recuperation des annonces SeLoger… (~15 s)",null);
+eaApi(body).then(function(res){eaShowResult(res)})
+.catch(function(err){console.error("start",err);eaResult.innerHTML=eaError((err&&err.message)||"Echec de l'etude.");eaRun.disabled=false;eaRun.textContent="Lancer l'etude"})})};
 
 /* ====== NAVIGATION ====== */
 function show(v,sc){document.querySelectorAll(".view").forEach(function(x){x.classList.remove("active")});var el=document.getElementById("view-"+v);if(el)el.classList.add("active");window.scrollTo(0,0);

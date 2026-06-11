@@ -340,23 +340,16 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
     });
   }
 
-  // VENTE : pas de charges -> on finalise tout de suite (insert + synthese).
-  if (transaction === "vente") {
-    await insertRows(env, partielles.map((a) => toInsertRow(a, transaction, scrapedAt))).catch((e) => console.error("[start] insert vente:", e));
-    const s = synthesize(partielles, transaction);
-    return json({
-      done: true, fromCache: false, creditsEstimes: 1, scrapedAt,
-      ville: city.nom, quartier: quartier || null, transaction, seloCode, searchUrl, filtres,
-      annoncesRetenues: partielles.length, annonces: partielles,
-      parTypologie: s.parTypologie, global: s.global,
-    });
-  }
-
-  // LOCATION : on renvoie les annonces partielles ; le FRONT bouclera "detail".
+  // Les charges reelles sont bloquees (DataDome) -> PAS de scrape detail. On
+  // finalise directement : insert + synthese ponderee (loyers CC). Les charges
+  // sont ESTIMEES cote front (ratio parametrable). 1 seul scrape (la liste).
+  await insertRows(env, partielles.map((a) => toInsertRow(a, transaction, scrapedAt))).catch((e) => console.error("[start] insert:", e));
+  const s = synthesize(partielles, transaction);
   return json({
-    phase: "start", done: false, fromCache: false, scrapedAt,
+    done: true, fromCache: false, creditsEstimes: 1, scrapedAt,
     ville: city.nom, quartier: quartier || null, transaction, seloCode, searchUrl, filtres,
-    total: partielles.length, annonces: partielles, creditsEstimes: 1 + partielles.length,
+    annoncesRetenues: partielles.length, annonces: partielles,
+    parTypologie: s.parTypologie, global: s.global,
   });
 }
 
