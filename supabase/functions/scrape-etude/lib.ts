@@ -113,8 +113,22 @@ export function parseCharges(text: string): number | null {
   return isFinite(n) && n > 0 ? n : null;
 }
 
+// Resultat d'UNE page detail (phase "detail") : charges + loyer_hc + prix/m2.
+// charges introuvable -> null (l'annonce reste exploitable en CC).
+export function detailResult(loyerCc: number | null, surface: number | null, markdown: string) {
+  const charges = parseCharges(markdown);
+  const prix_m2_cc = (loyerCc != null && surface != null && surface > 0) ? round(loyerCc / surface) : null;
+  let loyer_hc: number | null = null;
+  let prix_m2_hc: number | null = null;
+  if (charges != null && loyerCc != null && surface != null && surface > 0 && charges < loyerCc) {
+    loyer_hc = round(loyerCc - charges);
+    prix_m2_hc = round(loyer_hc / surface);
+  }
+  return { charges, loyer_hc, prix_m2_cc, prix_m2_hc };
+}
+
 // Fusionne les annonces partielles (loyer_cc/surface...) avec les markdowns
-// detail (batch) pour en extraire les charges -> loyer_hc / prix_m2_hc.
+// detail pour en extraire les charges -> loyer_hc / prix_m2_hc.
 // Sans charges trouvees : charges/loyer_hc/prix_m2_hc restent null (stats CC OK).
 // deno-lint-ignore no-explicit-any
 export function mergeCharges(partielles: any[], markdowns: Array<string | null | undefined>): any[] {

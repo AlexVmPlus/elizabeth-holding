@@ -4,23 +4,26 @@ Scrape SeLoger via **Firecrawl** (passe le DataDome, gratuit ~1000 pages/mois,
 pas de rate-limit), calcule des stats de marché pondérées par surface, et stocke
 les annonces dans la table `etudes_marche` (`source='firecrawl'`).
 
-## Architecture 2 phases (anti `WORKER_RESOURCE_LIMIT`)
+## Architecture "1 page par appel" (anti `WORKER_RESOURCE_LIMIT`)
 
 Scraper la liste **puis** N pages détail en série dans un seul worker faisait
-planter la fonction (status 546). On utilise donc le **batch async Firecrawl** :
+planter la fonction (status 546). Le **batch async Firecrawl** est inutilisable
+sur le free tier (job bloqué « scraping » plusieurs minutes). Donc : **chaque
+appel de fonction fait au plus 1 scrape Firecrawl**, et c'est le **FRONT qui
+orchestre la boucle**. 3 phases :
 
-- **phase `start`** : vérifie le cache, résout l'INSEE, scrape **1 page liste**
-  (rapide), parse les annonces, lance un **batch async** sur les URLs détail et
-  renvoie immédiatement `{ done:false, jobId, annoncesPartielles, total }`.
-- **phase `poll`** : interroge le batch ; tant que `status≠"completed"` →
-  `{ done:false, progress:"k/n" }` ; une fois fini → extrait les charges,
-  calcule la synthèse, insère en base et renvoie `{ done:true, annonces, ... }`.
+- **`start`** : cache → sinon résout l'INSEE, scrape **1 page liste** (`waitFor
+  6000`), parse les annonces → `{ done:false, annonces:[partielles], total }`.
+- **`detail`** : scrape **UNE page détail** (`waitFor 4000`) → extrait les charges
+  → `{ charges, loyer_hc, prix_m2_cc, prix_m2_hc }`. Le front boucle dessus
+  séquentiellement (1 annonce à la fois, ~15 s chacune).
+- **`finalize`** : **0 scrape** → synthèse pondérée + insertion → `{ done:true }`.
 
-Le front appelle `start`, affiche la pré-fiche, puis **poll toutes les ~3,5 s**.
+Le front : `start` (pré-fiche immédiate) → boucle `detail` (barre « Charges k/n »,
+bouton Arrêter) → `finalize` (synthèse). ~15 s/annonce ⇒ ~8 min pour 30.
 
 ### phase `start`
 ```
-POST .../scrape-etude
 { "phase":"start", "ville":"Bordeaux", "transaction":"location",
   "typologie":"T2", "neufOnly":false, "anneeMin":null,
   "maxItems":30, "forceRefresh":false }
@@ -30,19 +33,26 @@ POST .../scrape-etude
 |--------------|--------------|--------------------------------------------------------|
 | `ville`      | (obligatoire)| commune → INSEE via `api-adresse.data.gouv.fr` (`type=municipality`) |
 | `quartier`   | `null`       | libellé quartier (stocké tel quel)                     |
-| `transaction`| `location`   | `location` ou `vente` (vente = 1 phase, sans charges)  |
+| `transaction`| `location`   | `location` ou `vente` (vente = `done:true` direct, sans charges) |
 | `typologie`  | —            | `T1`..`T6` (Studio/T1=1 pièce … T6=6 pièces et +) — filtre post-récup |
 | `neufOnly`   | `false`      | ne garde que les annonces dont le titre mentionne neuf/récent |
 | `anneeMin`   | —            | filtre année **best-effort** sur le titre (neuf/récent ou année ≥ min) |
-| `maxItems`   | `30`         | plafonne le nb de détails (1–100) — **1 page liste ~25 annonces** |
+| `maxItems`   | `30`         | plafonne le nb d'annonces/détails (1–100) — **1 page liste ~25 annonces** |
 | `forceRefresh`| `false`     | ignore le cache 7 jours et re-scrape |
 
-### phase `poll`
+### phase `detail`
 ```
-POST .../scrape-etude
-{ "phase":"poll", "jobId":"<id>", "ville":"Bordeaux", "transaction":"location",
-  "annoncesPartielles":[ ...renvoyées par start... ] }
+{ "phase":"detail", "url":"https://www.seloger.com/annonces/.../123.htm",
+  "loyer_cc":900, "surface":50 }
 ```
+→ `{ phase:"detail", url, charges, loyer_hc, prix_m2_cc, prix_m2_hc }`.
+
+### phase `finalize`
+```
+{ "phase":"finalize", "ville":"Bordeaux", "transaction":"location",
+  "annonces":[ ...annonces complètes (charges fusionnées par le front)... ] }
+```
+→ `{ done:true, annonces, parTypologie, global, creditsEstimes }`.
 
 ### Cache 7 jours
 
@@ -54,27 +64,25 @@ annonces, elle renvoie ces lignes recalculées **sans appel Firecrawl** :
 
 ### Coût Firecrawl
 
-1 étude ≈ **1 (liste) + N (détails batch)** crédits, N = nb d'annonces retenues
+1 étude ≈ **1 (liste) + N (détails)** crédits, N = nb d'annonces retenues
 (≤ maxItems, ≤ ~25). 1000 crédits gratuits/mois ≈ 30 études à `maxItems=30`. Le
-cache rend gratuites les ré-études d'une même ville dans la semaine. La sortie
-renvoie `creditsEstimes`. Sortie commune : `{ done, fromCache, creditsEstimes,
-annonces, parTypologie, global }` (+ `jobId`/`annoncesPartielles`/`progress`
-selon la phase).
+cache rend gratuites les ré-études d'une même ville dans la semaine. Chaque phase
+renvoie `creditsEstimes` (`start`/`finalize`).
 
 ### Détails techniques
 
 1. **INSEE** : `api-adresse.data.gouv.fr` → `citycode` (ex Bordeaux `33063`).
    Code SeLoger = on insère un `0` après le département : `33063 → 330063`,
    `69123 → 690123` (confirmé). `selogerCode()` dans `lib.ts`.
-2. **Liste** : `POST /v2/scrape`, `formats:["markdown","links"]`,
+2. **Liste** (`start`) : `POST /v2/scrape`, `formats:["markdown","links"]`,
    **`waitFor:6000` OBLIGATOIRE** (annonces chargées en JS), `timeout:45000`.
-3. **Détails** : `POST /v2/batch/scrape` `{ urls, formats:["markdown"],
-   waitFor:4000 }` → `id` ; puis `GET /v2/batch/scrape/{id}` jusqu'à `completed`.
+3. **Détail** (`detail`) : `POST /v2/scrape` `formats:["markdown"]`,
+   `waitFor:4000` — **1 seule page par appel** (jamais de série ni de batch).
    Charges via `parseCharges` (motif principal « Charges forfaitaires X € »).
 4. `loyer_hc = loyer_cc − charges` (sinon `null`). Synthèse pondérée CC **et** HC.
 
-Si le batch échoue, `start` renvoie quand même les loyers **CC** (`done:true`).
-Une annonce sans charges → incluse dans les stats CC, exclue des stats HC.
+Si une page détail échoue, `detail` renvoie `charges:null` (loyer CC conservé) :
+l'annonce reste dans les stats CC, exclue des stats HC.
 
 ## Secret
 

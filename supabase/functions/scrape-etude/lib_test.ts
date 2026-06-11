@@ -2,6 +2,7 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   annonceToRow,
   buildListUrl,
+  detailResult,
   matchesAnnee,
   matchesNeuf,
   matchesTypologie,
@@ -85,6 +86,20 @@ Deno.test("parseCharges : forfaitaires / provision / dont X € de charges", () 
   assertEquals(parseCharges("charges comprises 929 €"), null); // 929 = loyer, pas charges
   assertEquals(parseCharges("Loyer hors charges : 760 €"), null); // 760 = loyer HC, pas charges
   assertEquals(parseCharges("aucune mention"), null);
+});
+
+Deno.test("detailResult : 1 page detail -> charges / loyer_hc / prix_m2", () => {
+  const r = detailResult(900, 50, "Loyer charges comprises 900 €. Charges forfaitaires 50 €/mois.");
+  assertEquals(r.charges, 50);
+  assertEquals(r.loyer_hc, 850); // 900 - 50
+  assertEquals(r.prix_m2_cc, 18); // 900/50
+  assertEquals(r.prix_m2_hc, 17); // 850/50
+  // charges introuvables -> CC seul
+  const r2 = detailResult(900, 50, "Description sans charges.");
+  assertEquals(r2.charges, null);
+  assertEquals(r2.loyer_hc, null);
+  assertEquals(r2.prix_m2_cc, 18);
+  assertEquals(r2.prix_m2_hc, null);
 });
 
 Deno.test("mergeCharges : fusion partielles + markdowns detail", () => {
