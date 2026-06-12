@@ -469,26 +469,36 @@ if(res.transaction=="vente_neuf"){eaShowResultNeuf(res);return}
 var nb=res.annoncesRetenues!=null?res.annoncesRetenues:((res.annonces&&res.annonces.length)||0);
 var banner=eaDone((nb||0)+" annonce"+(nb>1?"s":"")+" récupérée"+(nb>1?"s":""),res.creditsEstimes);
 var btn=(res.global&&nb)?'<div class="no-print" style="text-align:center;margin:22px 0 6px"><button id="ea-genfiche" class="btn bp" style="padding:14px 30px;font-size:16px">&#128202; Générer la fiche complète</button></div>':'';
-eaResult.innerHTML=banner+eaPrefiche(res)+btn+'<div id="ea-fiche-zone" style="margin-top:8px"></div>';
+eaComboFD={loc:res,neuf:null,insee:null};
+eaResult.innerHTML=banner+eaPrefiche(res)+btn+(nb?eaPdfBtnHtml():'')+'<div id="ea-fiche-zone" style="margin-top:8px"></div>';
 if(window.gsap)gsap.from("#ea-prefiche",{y:18,opacity:0,duration:.45,ease:"power3.out"});
-eaWireRows();
+eaWireRows();eaWirePdfBtn();
 var g=document.getElementById("ea-genfiche");if(g)g.onclick=function(){eaGenerateFiche(eaLastRes)};
 eaRun.disabled=false;eaRun.textContent="Lancer l'étude"}
 
 /* ====== VENTE NEUF (programmes promoteurs SeLoger Neuf) ====== */
-/* pre-fiche : un tableau des lots, groupes par programme */
+/* pre-fiche neuf : detail LOT PAR LOT (tableau plat, lien Voir par lot) */
 function eaPreficheNeuf(j){
 var lots=j.annonces||[];
 if(!lots.length)return '<div class="card" style="padding:28px"><div style="font-size:30px">&#128269;</div><h3 style="margin:8px 0 4px">Aucun programme neuf trouvé</h3><p style="color:var(--soft)">'+eaEsc(j.message||"Aucun programme neuf exploitable pour cette ville sur SeLoger Neuf.")+'</p></div>';
-var progs={};lots.forEach(function(a){var k=a.nom_programme||a.url||"?";(progs[k]=progs[k]||[]).push(a)});
-var nbProg=Object.keys(progs).length;
-var head='<div class="eahead"><div class="k">Pré-fiche &middot; programmes neufs sourcés</div><h2>'+eaEsc(j.ville)+(j.quartier?' &middot; '+eaEsc(j.quartier):'')+'</h2><div class="s">Vente Neuf &middot; '+nbProg+' programme'+(nbProg>1?'s':'')+' &middot; '+lots.length+' lot'+(lots.length>1?'s':'')+' &middot; '+eaDate(j.scrapedAt)+'</div></div>';
-var nd='<span style="color:var(--soft)">n/d</span>',body="";
-Object.keys(progs).sort().forEach(function(k){var ls=progs[k].slice().sort(function(a,b){return (a.nb_pieces||0)-(b.nb_pieces||0)});var p=ls[0];
-body+='<tr style="background:var(--bsoft)"><td colspan="6" style="font-weight:700">'+eaEsc(p.nom_programme||"Programme")+' '+(p.tva?'<span class="ea-pill" style="margin-left:6px">TVA '+eaEsc(p.tva)+'</span>':'')+(p.cached?'<span class="ea-pill" style="margin-left:6px;opacity:.7">cache</span>':'')+' <span style="font-weight:400;color:var(--soft)">&middot; '+eaEsc(p.promoteur||"promoteur n/d")+(p.adresse?' &middot; '+eaEsc(p.adresse):'')+(p.date_livraison?' &middot; livraison '+eaEsc(p.date_livraison):'')+'</span></td><td>'+(p.url?'<a href="'+eaEsc(p.url)+'" target="_blank" rel="noopener" class="ea-link">Voir &rarr;</a>':'-')+'</td></tr>';
-ls.forEach(function(a){body+='<tr'+(a.url?' class="ea-rowlink" data-url="'+eaEsc(a.url)+'"':'')+'><td><b>'+eaEsc(a.typologie||"-")+'</b></td><td>'+(a.surface!=null?e1(a.surface)+" m&sup2;":nd)+'</td><td>'+(a.prix_total!=null?euro(a.prix_total)+" &euro;":nd)+'</td><td>'+(a.prix_m2!=null?euro(a.prix_m2)+" &euro;/m&sup2;":nd)+'</td><td colspan="3" style="color:var(--soft)">'+eaEsc(a.date_livraison||"")+'</td></tr>'})});
-var table='<div class="dl" style="margin-top:0;padding:0 18px 14px"><div style="max-height:540px;overflow:auto;border:1px solid var(--line);border-radius:12px"><table><thead><tr><th>Type</th><th>Surface</th><th>Prix</th><th>Prix/m&sup2;</th><th colspan="3">Livraison</th></tr></thead><tbody>'+body+'</tbody></table></div></div>';
-var foot='<div style="padding:6px 24px 18px;color:var(--soft);font-size:13px">Source : SeLoger Neuf (selogerneuf.com) &middot; lots affichés par le promoteur (échantillon par typologie). Chaque ligne ouvre le programme.</div>';
+var progSet={};lots.forEach(function(a){progSet[a.nom_programme||a.url||"?"]=1});
+var nbProg=Object.keys(progSet).length;
+var head='<div class="eahead"><div class="k">Pré-fiche &middot; lots des programmes neufs</div><h2>'+eaEsc(j.ville)+(j.quartier?' &middot; '+eaEsc(j.quartier):'')+'</h2><div class="s">Vente Neuf &middot; '+nbProg+' programme'+(nbProg>1?'s':'')+' &middot; '+lots.length+' lot'+(lots.length>1?'s':'')+' &middot; '+eaDate(j.scrapedAt)+'</div></div>';
+var nd='<span style="color:var(--soft)">n/d</span>';
+var sorted=lots.slice().sort(function(a,b){var ka=String(a.nom_programme||""),kb=String(b.nom_programme||"");return ka<kb?-1:(ka>kb?1:(a.nb_pieces||0)-(b.nb_pieces||0))});
+var body=sorted.map(function(a){
+var u=String(a.url||"").trim().split(/\s/)[0].replace(/["')\]]+$/,"");
+return '<tr'+(u?' class="ea-rowlink" data-url="'+eaEsc(u)+'"':'')+'>'
++'<td><b>'+eaEsc(a.nom_programme||"-")+'</b><div style="color:var(--soft);font-size:12px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+eaEsc(a.promoteur||"")+(a.cached?' &middot; cache':'')+'</div></td>'
++'<td><b>'+eaEsc(a.typologie||"-")+'</b></td>'
++'<td>'+(a.surface!=null?e1(a.surface)+" m&sup2;":nd)+'</td>'
++'<td>'+(a.prix_total!=null?euro(a.prix_total)+" &euro;":nd)+'</td>'
++'<td>'+(a.prix_m2!=null?euro(a.prix_m2)+" &euro;/m&sup2;":nd)+'</td>'
++'<td>'+eaEsc(a.date_livraison||"-")+'</td>'
++'<td>'+(a.tva?'<span class="ea-pill">'+eaEsc(a.tva)+'</span>':nd)+'</td>'
++'<td>'+(u?'<a href="'+eaEsc(u)+'" target="_blank" rel="noopener" class="ea-link">Voir &rarr;</a>':"-")+'</td></tr>'}).join("");
+var table='<div class="dl" style="margin-top:0;padding:0 18px 14px"><div style="max-height:540px;overflow:auto;border:1px solid var(--line);border-radius:12px"><table><thead><tr><th>Programme</th><th>Type</th><th>Surface</th><th>Prix</th><th>Prix/m&sup2;</th><th>Livraison</th><th>TVA</th><th></th></tr></thead><tbody>'+body+'</tbody></table></div></div>';
+var foot='<div style="padding:6px 24px 18px;color:var(--soft);font-size:13px">Source : SeLoger Neuf &middot; lots affichés par le promoteur (échantillon par typologie) &middot; chaque ligne ouvre le programme.</div>';
 return '<div class="card" id="ea-prefiche">'+head+table+foot+'</div>'}
 function eaShowResultNeuf(res){
 var lots=res.annonces||[],progSet={};lots.forEach(function(a){progSet[a.nom_programme||a.url||"?"]=1});
@@ -496,9 +506,10 @@ var nbProg=Object.keys(progSet).length;
 var detail=(res.cachedProgrammes!=null)?" (dont "+(res.cachedProgrammes||0)+" cache, "+(res.scrapedProgrammes||0)+" scrapés)":"";
 var banner=eaDone(nbProg+" programme"+(nbProg>1?"s":"")+" neuf"+(nbProg>1?"s":"")+detail+" &middot; "+lots.length+" lot"+(lots.length>1?"s":""),res.creditsEstimes);
 var btn=(res.global&&lots.length)?'<div class="no-print" style="text-align:center;margin:22px 0 6px"><button id="ea-genfiche" class="btn bp" style="padding:14px 30px;font-size:16px">&#128202; Générer la fiche complète</button></div>':'';
-eaResult.innerHTML=banner+eaPreficheNeuf(res)+btn+'<div id="ea-fiche-zone" style="margin-top:8px"></div>';
+eaComboFD={loc:null,neuf:res,insee:null};
+eaResult.innerHTML=banner+eaPreficheNeuf(res)+btn+(lots.length?eaPdfBtnHtml():'')+'<div id="ea-fiche-zone" style="margin-top:8px"></div>';
 if(window.gsap)gsap.from("#ea-prefiche",{y:18,opacity:0,duration:.45,ease:"power3.out"});
-eaWireRows();
+eaWireRows();eaWirePdfBtn();
 var g=document.getElementById("ea-genfiche");if(g)g.onclick=function(){eaGenerateFicheNeuf(res)};
 eaRun.disabled=false;eaRun.textContent="Lancer l'étude"}
 /* loyer m2 CC pondere de la DERNIERE etude location de la ville (table etudes_marche) */
@@ -613,77 +624,127 @@ return next(2)})}
    de tracking differents d'une page a l'autre (serp_view, search...) */
 function eaUrlKey(a){return String((a&&a.url)||"").split("?")[0]}
 function eaCollect(into,seen,annonces){var n=0;(annonces||[]).forEach(function(a){var k=eaUrlKey(a);if(k&&seen[k])return;if(k)seen[k]=1;into.push(a);n++});return n}
-/* ====== ETUDE COMPLETE : fiche combinee location + achat neuf + PDF ====== */
+/* ====== ETUDE COMPLETE + FICHE PDF (synthese 1 page A4) ====== */
 var eaComboFD=null;
+var BLEU="#185FA5",VERT="#0F6E56";
+function eaPdfBtnHtml(){return '<div class="no-print" style="text-align:center;margin:22px 0 6px"><button id="ea-pdf-btn" class="btn bp" style="padding:14px 30px;font-size:16px">&#11015;&#65039; Télécharger la fiche PDF (synthèse 1 page)</button></div>'}
+function eaWirePdfBtn(){var b=document.getElementById("ea-pdf-btn");if(b)b.onclick=eaDownloadPdf}
 function eaShowResultComplete(loc,nf){
 var credits=(loc.creditsEstimes||0)+(nf.creditsEstimes||0);
 var cdetail=(nf.cachedProgrammes!=null)?" &middot; neuf : "+(nf.cachedProgrammes||0)+" prog. cache / "+(nf.scrapedProgrammes||0)+" scrapés":"";
 var banner=eaDone("Étude complète : "+(loc.annoncesRetenues||0)+" annonces location &middot; "+(nf.annoncesRetenues||0)+" lots neufs"+cdetail,credits);
-eaResult.innerHTML=banner+'<div id="ea-combo-zone"></div>';
-var z=document.getElementById("ea-combo-zone");
-z.innerHTML=eaProgress("Récupération des données INSEE…",null);
-eaFetchInsee(loc.ville||nf.ville).then(function(insee){
-eaComboFD={loc:loc,neuf:nf,insee:insee};
-z.innerHTML='<div class="no-print" style="text-align:center;margin:6px 0 14px"><button id="ea-pdf-btn" class="btn bp" style="padding:14px 30px;font-size:16px">&#11015;&#65039; Télécharger la fiche PDF</button></div>'+eaBuildFicheCombo(eaComboFD);
-var b=document.getElementById("ea-pdf-btn");if(b)b.onclick=eaDownloadPdf;
-if(window.gsap)gsap.from("#ea-combodoc .ea-sec",{y:18,opacity:0,stagger:.06,duration:.45,ease:"power3.out"});
-z.scrollIntoView({behavior:"smooth",block:"start"})});
+eaComboFD={loc:loc,neuf:nf,insee:null};
+eaResult.innerHTML=banner
++'<h3 style="font-size:16px;margin:18px 0 10px">&#127968; Location &middot; détail des annonces</h3>'+eaPrefiche(loc)
++'<h3 style="font-size:16px;margin:18px 0 10px">&#127970; Achat neuf &middot; détail des lots</h3>'+eaPreficheNeuf(nf)
++eaPdfBtnHtml();
+eaWireRows();eaWirePdfBtn();
 eaRun.disabled=false;eaRun.textContent="Lancer l'étude"}
-/* tableau condense pour la fiche (styles inline -> rendu PDF fidele) */
-function eaCt(headers,rows){
-var th=headers.map(function(h){return '<th style="text-align:left;padding:4px 8px;border-bottom:1.5px solid #1c2a4a;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:#1c2a4a">'+h+'</th>'}).join("");
-var tb=rows.map(function(r,i){return '<tr>'+r.map(function(c){return '<td style="padding:4px 8px;border-bottom:1px solid #e6e9f2;font-size:12px">'+c+'</td>'}).join("")+'</tr>'}).join("");
-return '<table style="width:100%;border-collapse:collapse;margin-top:6px"><thead><tr>'+th+'</tr></thead><tbody>'+tb+'</tbody></table>'}
-function eaSecTitle(t){return '<div style="font-weight:800;font-size:13.5px;color:#1c2a4a;margin:14px 0 2px;text-transform:uppercase;letter-spacing:.5px">'+t+'</div>'}
-function eaBuildFicheCombo(fd){var loc=fd.loc,nf=fd.neuf,insee=fd.insee||{},ratio=2.5,nd='<span style="color:#9aa3b5">n/d</span>';
-var order=["T1","T2","T3","T4","T5","T6"],ville=loc.ville||nf.ville,quartier=loc.quartier||nf.quartier;
-function lT(t){return loc.parTypologie&&loc.parTypologie[t]}
-function nT(t){return nf.parTypologie&&nf.parTypologie[t]}
-var head='<div style="display:flex;align-items:center;justify-content:space-between;gap:14px;border-bottom:3px solid #1c2a4a;padding-bottom:10px"><div style="display:flex;align-items:center;gap:10px"><div style="width:40px;height:40px;border-radius:10px;background:#1c2a4a;color:#fff;display:grid;place-items:center;font-weight:800">EH</div><div><div style="font-weight:800;font-size:15px;color:#1c2a4a">Elizabeth Holding</div><div style="font-size:11px;color:#6b7280">Intelligence immobilière</div></div></div><div style="text-align:center"><div style="font-weight:800;font-size:17px;color:#1c2a4a">'+eaEsc(ville)+(quartier?' &middot; '+eaEsc(quartier):'')+'</div><div style="font-size:11px;color:#6b7280">Étude de marché combinée &middot; location &amp; achat neuf</div></div><div style="font-size:11px;color:#6b7280;text-align:right">'+eaDate(loc.scrapedAt||nf.scrapedAt)+'<br>'+(loc.annoncesRetenues||0)+' annonces &middot; '+(nf.annoncesRetenues||0)+' lots neufs</div></div>';
-/* bloc location */
-var locRows=[];
+/* photo de la ville via Wikipedia REST (sans cle). Arrondissement -> page
+   "8e arrondissement de Paris", fallback ville de base, fallback null
+   (l image est prechargee en crossOrigin=anonymous : si elle ne passe pas le
+   CORS du canvas, on rend le degrade a la place). */
+function eaWikiPhoto(name){return fetch("https://fr.wikipedia.org/api/rest_v1/page/summary/"+encodeURIComponent(name)).then(function(r){return r.ok?r.json():null}).then(function(j){return (j&&((j.thumbnail&&j.thumbnail.source)||(j.originalimage&&j.originalimage.source)))||null}).catch(function(){return null})}
+function eaVillePhoto(ville){
+var names=[],m=String(ville||"").match(/^(Paris|Lyon|Marseille)\s+(\d{1,2})(?:er|e)?$/i);
+if(m)names.push((m[2]=="1"?"1er":m[2]+"e")+" arrondissement de "+m[1]);
+names.push(String(ville||"").replace(/\s+\d.*$/,""));
+function tryAt(i){if(i>=names.length)return Promise.resolve(null);
+return eaWikiPhoto(names[i]).then(function(u){if(!u)return tryAt(i+1);
+return new Promise(function(ok){var im=new Image();im.crossOrigin="anonymous";im.onload=function(){ok(u)};im.onerror=function(){ok(null)};im.src=u;setTimeout(function(){ok(null)},6000)}).then(function(r){return r||tryAt(i+1)})})}
+return tryAt(0)}
+/* phrases "lecture marche" par regles simples */
+function eaLectureMarche(rdt,insee,nbProgs){var ph=[];
+if(rdt!=null)ph.push("Rendement brut moyen de "+e1(rdt)+"\u00A0% : "+(rdt<3.5?"marché patrimonial à rendement modéré, porté par la valorisation du foncier":(rdt<=5?"équilibre prix/loyers correct pour un investissement locatif":"rendement locatif attractif pour de l'investissement")));
+if(insee&&insee.pct_loc!=null)ph.push(insee.pct_loc>=55?e1(insee.pct_loc)+"\u00A0% de locataires : demande locative structurellement forte":(insee.pct_loc>=40?e1(insee.pct_loc)+"\u00A0% de locataires : demande locative solide":"majorité de propriétaires"+(insee.pct_prop!=null?" ("+e1(insee.pct_prop)+"\u00A0%)":"")+" : marché de résidences principales"));
+if(ph.length<2&&nbProgs)ph.push(nbProgs+" programme"+(nbProgs>1?"s":"")+" neuf"+(nbProgs>1?"s":"")+" actif"+(nbProgs>1?"s":"")+" : offre neuve dynamique");
+return ph.slice(0,2).join(". ")+(ph.length?".":"")}
+/* page de synthese A4 (794px), styles 100% inline -> rendu html2canvas fiable */
+function eaBuildPdfPage(fd){var loc=fd.loc,nf=fd.neuf,insee=fd.insee||{},photo=fd.photo;
+var ville=(loc&&loc.ville)||(nf&&nf.ville)||"",quartier=(loc&&loc.quartier)||(nf&&nf.quartier)||null;
+var nd='<span style="color:#9aa3b5">n/d</span>',order=["T1","T2","T3","T4","T5","T6"];
+var lG=loc&&loc.global,nG=nf&&nf.global;
+var loyerM2=lG?lG.prix_m2_cc_pondere:null,prixM2=nG?nG.prix_m2_cc_pondere:null;
+var rdt=(loyerM2!=null&&prixM2)?loyerM2*12/prixM2*100:null;
+var lots=(nf&&nf.annonces)||[],progs={};lots.forEach(function(a){var k=a.nom_programme||a.url||"?";(progs[k]=progs[k]||[]).push(a)});
+var progKeys=Object.keys(progs),promoSet={};lots.forEach(function(a){if(a.promoteur)promoSet[a.promoteur]=1});
+var nbPromos=Object.keys(promoSet).length;
+var minPrix=null;lots.forEach(function(a){if(a.prix_total!=null&&(minPrix==null||a.prix_total<minPrix))minPrix=a.prix_total});
+/* A. bandeau photo */
+var bg=photo?'<img src="'+eaEsc(photo)+'" crossorigin="anonymous" style="position:absolute;top:0;left:0;width:794px;height:132px;object-fit:cover">':'<div style="position:absolute;top:0;left:0;width:794px;height:132px;background:linear-gradient(135deg,'+BLEU+',#0c3a66)"></div>';
+var head='<div style="position:relative;height:132px;overflow:hidden">'+bg
++'<div style="position:absolute;top:0;left:0;width:794px;height:132px;background:linear-gradient(180deg,rgba(10,30,55,.30),rgba(8,26,48,.82))"></div>'
++'<div style="position:absolute;top:14px;left:26px;display:flex;align-items:center;gap:9px"><div style="width:30px;height:30px;border-radius:8px;background:#fff;color:'+BLEU+';font-weight:800;font-size:13px;display:grid;place-items:center">EH</div><div style="color:#fff;font-size:10.5px;font-weight:700;letter-spacing:2px">ELIZABETH HOLDING &middot; INTELLIGENCE IMMOBILI&Egrave;RE</div></div>'
++'<div style="position:absolute;left:26px;right:26px;bottom:12px;display:flex;align-items:flex-end;justify-content:space-between"><div style="color:#fff;font-size:25px;font-weight:800">'+eaEsc(ville)+(quartier?' <span style="font-size:15px;font-weight:600">&middot; '+eaEsc(quartier)+'</span>':'')+' &mdash; Synth&egrave;se de march&eacute;</div><div style="color:rgba(255,255,255,.85);font-size:11px">'+eaDate((loc&&loc.scrapedAt)||(nf&&nf.scrapedAt))+'</div></div></div>';
+/* B. 4 chiffres cles */
+function kpi(v,lab){return '<div style="flex:1;text-align:center;padding:11px 6px;background:#f3f7fc;border-radius:10px"><div style="font-size:21px;font-weight:800;color:'+BLEU+'">'+v+'</div><div style="font-size:9.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#5b6b80;margin-top:2px">'+lab+'</div></div>'}
+var kpis='<div style="display:flex;gap:10px;margin:16px 0 0">'
++kpi(loyerM2!=null?e1(loyerM2)+' &euro;/m&sup2;':'n/d',"Loyer moyen (CC)")
++kpi(prixM2!=null?euro(Math.round(prixM2))+' &euro;/m&sup2;':'n/d',"Prix neuf moyen")
++kpi(rdt!=null?'<span style="color:'+VERT+'">'+e1(rdt)+' %</span>':'n/d',"Rendement brut moyen")
++kpi(minPrix!=null?Math.round(minPrix/1000)+' k&euro;':'n/d',"Prix d'entr&eacute;e neuf")+'</div>';
+/* C. 2 colonnes */
+function th(t){return '<th style="text-align:left;padding:3px 7px;font-size:9px;letter-spacing:.6px;text-transform:uppercase;color:'+BLEU+';border-bottom:1.5px solid '+BLEU+'">'+t+'</th>'}
+function td(c){return '<td style="padding:3.5px 7px;font-size:11px;border-bottom:1px solid #e8ecf3;color:#27303f">'+c+'</td>'}
+function secT(t,color){return '<div style="font-size:12px;font-weight:800;color:'+(color||BLEU)+';text-transform:uppercase;letter-spacing:.8px;margin:0 0 5px">'+t+'</div>'}
+var MAXP=8;
+var topProgs=progKeys.map(function(k){var ls=progs[k],p=ls[0],sum=0,n=0;ls.forEach(function(a){if(a.prix_m2){sum+=a.prix_m2;n++}});return {nom:p.nom_programme||"Programme",promoteur:p.promoteur||"-",pm2:n?Math.round(sum/n):null,tva:p.tva||"-"}}).sort(function(a,b){return (a.pm2||1e9)-(b.pm2||1e9)});
+var progRows=topProgs.slice(0,MAXP).map(function(p){return '<tr>'+td('<b>'+eaEsc(p.nom)+'</b>')+td(eaEsc(p.promoteur))+td(p.pm2!=null?euro(p.pm2)+' &euro;':'n/d')+td(eaEsc(p.tva))+'</tr>'}).join("");
+var progMore=progKeys.length>MAXP?'<div style="font-size:10px;color:#6b7280;margin-top:3px">&hellip; et '+(progKeys.length-MAXP)+' autres programmes</div>':'';
+var colG='<div style="flex:1.15;min-width:0">'+secT("Offre neuve &middot; "+progKeys.length+" programme"+(progKeys.length>1?"s":"")+" &middot; "+nbPromos+" promoteur"+(nbPromos>1?"s":""))
++(progRows?'<table style="width:100%;border-collapse:collapse"><thead><tr>'+th("Programme")+th("Promoteur")+th("&euro;/m&sup2;")+th("TVA")+'</tr></thead><tbody>'+progRows+'</tbody></table>'+progMore:'<div style="font-size:11px;color:#6b7280">Aucun programme neuf trouv&eacute;.</div>')+'</div>';
+var typoRows=[];
 order.concat(["GLOBAL"]).forEach(function(t){
-var sc=t=="GLOBAL"?loc.global:lT(t);if(!sc)return;
-var cc=sc.prix_m2_cc_pondere,hc=cc!=null?Math.max(0,cc-ratio):null;
-locRows.push([t=="GLOBAL"?"<b>Global</b>":"<b>"+t+"</b>",sc.nb_annonces,e1(sc.surface_moyenne)+" m&sup2;",cc!=null?e1(cc)+" &euro;":nd,cc!=null?euro(Math.round(cc*sc.surface_moyenne))+" &euro;":nd,hc!=null?e1(hc)+" &euro;":nd])});
-var locBlk=eaSecTitle("Location &middot; loyers de marché (SeLoger)")+(locRows.length?eaCt(["Typologie","Annonces","Surface moy.","&euro;/m&sup2; CC","Loyer CC/mois","&euro;/m&sup2; HC est."],locRows)+'<div style="font-size:10.5px;color:#6b7280;margin-top:3px">Loyers CC pondérés par surface &middot; charges estimées '+e1(ratio)+' &euro;/m&sup2;/mois</div>':'<div style="font-size:12px;color:#6b7280">Aucune donnée location.</div>');
-/* bloc neuf */
-var progs={};(nf.annonces||[]).forEach(function(a){var k=a.nom_programme||a.url||"?";(progs[k]=progs[k]||[]).push(a)});
-var nbProgs=Object.keys(progs).length;
-var nfRows=[];
-order.concat(["GLOBAL"]).forEach(function(t){
-var sc=t=="GLOBAL"?nf.global:nT(t);if(!sc)return;
-nfRows.push([t=="GLOBAL"?"<b>Global</b>":"<b>"+t+"</b>",sc.nb_annonces,e1(sc.surface_moyenne)+" m&sup2;",euro(Math.round(sc.prix_m2_cc_pondere*sc.surface_moyenne))+" &euro;",euro(Math.round(sc.prix_m2_cc_pondere))+" &euro;"])});
-var nfBlk=eaSecTitle("Achat neuf &middot; prix promoteurs ("+nbProgs+" programmes, SeLoger Neuf)")+(nfRows.length?eaCt(["Typologie","Lots","Surface moy.","Prix moyen","&euro;/m&sup2; pondéré"],nfRows):'<div style="font-size:12px;color:#6b7280">Aucun programme neuf trouvé.</div>');
-/* rendement par typologie */
-var rdRows=[];
-order.concat(["GLOBAL"]).forEach(function(t){
-var l=t=="GLOBAL"?loc.global:lT(t),n=t=="GLOBAL"?nf.global:nT(t);
-if(!l||!n||l.prix_m2_cc_pondere==null||!n.prix_m2_cc_pondere)return;
-var r=l.prix_m2_cc_pondere*12/n.prix_m2_cc_pondere*100;
-rdRows.push([t=="GLOBAL"?"<b>Global</b>":"<b>"+t+"</b>",e1(l.prix_m2_cc_pondere)+" &euro;",euro(Math.round(n.prix_m2_cc_pondere))+" &euro;","<b>"+e1(r)+" %</b>"])});
-var rdBlk=rdRows.length?eaSecTitle("Rendement locatif brut estimé")+eaCt(["Typologie","Loyer &euro;/m&sup2;/mois CC","Prix &euro;/m&sup2; neuf","Rendement brut"],rdRows)+'<div style="font-size:10.5px;color:#6b7280;margin-top:3px">Rendement brut = loyer/m&sup2; CC &times; 12 &divide; prix/m&sup2; achat neuf. Hors charges, fiscalité, vacance.</div>':"";
-/* top programmes */
-var tops=Object.keys(progs).map(function(k){var ls=progs[k],p=ls[0],sum=0,n=0,minP=null;ls.forEach(function(a){if(a.prix_m2){sum+=a.prix_m2;n++}if(a.prix_total!=null&&(minP==null||a.prix_total<minP))minP=a.prix_total});
-return {nom:p.nom_programme||"Programme",promoteur:p.promoteur||"-",pm2:n?Math.round(sum/n):null,livraison:p.date_livraison||"-",tva:p.tva||"-",minP:minP}})
-.sort(function(a,b){return (a.pm2||1e9)-(b.pm2||1e9)}).slice(0,8);
-var topBlk=tops.length?eaSecTitle("Top programmes neufs")+eaCt(["Programme","Promoteur","&euro;/m&sup2; moyen","Dès","Livraison","TVA"],tops.map(function(p){return ["<b>"+eaEsc(p.nom)+"</b>",eaEsc(p.promoteur),p.pm2!=null?euro(p.pm2)+" &euro;":nd,p.minP!=null?euro(p.minP)+" &euro;":nd,eaEsc(p.livraison),eaEsc(p.tva)]})):"";
-/* insee */
-function iv(v,suf){return v!=null?(typeof v=="number"?(suf=="%"?e1(v)+" %":euro(v)):eaEsc(v))+(suf&&suf!="%"?suf:""):"n.c."}
-var inseeBlk=eaSecTitle("Données commune &middot; "+eaEsc(ville))+eaCt(["Population","Évolution pop.","Revenu médian","Propriétaires","Locataires","Logements récents"],[[iv(insee.population),insee.evolution!=null?(insee.evolution>0?"+":"")+e1(insee.evolution)+" %/an":"n.c.",insee.revenu!=null?euro(insee.revenu)+" &euro;":"n.c.",iv(insee.pct_prop,"%"),iv(insee.pct_loc,"%"),iv(insee.recents,"%")]]);
-var foot='<div style="margin-top:14px;padding-top:8px;border-top:1px solid #e6e9f2;font-size:10px;color:#6b7280">Sources : loyers &amp; programmes SeLoger / SeLoger Neuf (scraping du '+eaDate(loc.scrapedAt||nf.scrapedAt)+') &middot; INSEE (population, recensement, FiLoSoFi) &middot; Document indicatif, non contractuel &middot; Elizabeth Holding</div>';
-return '<div class="card" style="padding:26px" id="ea-combo-card"><div id="ea-combodoc" style="background:#fff;color:#1f2430">'+head+locBlk+nfBlk+rdBlk+topBlk+inseeBlk+foot+'</div></div>'}
-/* telechargement PDF (html2pdf charge a la demande) */
+var l=loc&&(t=="GLOBAL"?loc.global:(loc.parTypologie&&loc.parTypologie[t]));
+var n2=nf&&(t=="GLOBAL"?nf.global:(nf.parTypologie&&nf.parTypologie[t]));
+if(!l&&!n2)return;
+var lm=l?l.prix_m2_cc_pondere:null,nm=n2?n2.prix_m2_cc_pondere:null;
+var r=(lm!=null&&nm)?lm*12/nm*100:null;
+typoRows.push('<tr>'+td(t=="GLOBAL"?"<b>Global</b>":"<b>"+t+"</b>")+td(lm!=null?e1(lm)+' &euro;':'n/d')+td(nm!=null?euro(Math.round(nm))+' &euro;':'n/d')+td(r!=null?'<b style="color:'+VERT+'">'+e1(r)+' %</b>':'n/d')+'</tr>')});
+var colD='<div style="flex:1;min-width:0">'+secT("Loyers &amp; rendement par typologie")
++(typoRows.length?'<table style="width:100%;border-collapse:collapse"><thead><tr>'+th("Typo")+th("Loyer/m&sup2;")+th("Prix/m&sup2; neuf")+th("Rendement")+'</tr></thead><tbody>'+typoRows.join("")+'</tbody></table>':'<div style="font-size:11px;color:#6b7280">Aucune donn&eacute;e.</div>')
++'<div style="font-size:9.5px;color:#6b7280;margin-top:4px">Loyers CC pond&eacute;r&eacute;s par surface &middot; rendement brut = loyer &times; 12 &divide; prix neuf</div></div>';
+var cols='<div style="display:flex;gap:22px;margin:18px 0 0">'+colG+colD+'</div>';
+/* D. INSEE + lecture marche */
+function ist(v,lab){return '<div style="flex:1;text-align:center"><div style="font-size:15px;font-weight:800;color:#27303f">'+v+'</div><div style="font-size:9px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#5b6b80;margin-top:1px">'+lab+'</div></div>'}
+var inseeBlk='<div style="flex:1.15">'+secT("Profil commune (INSEE)")+'<div style="display:flex;gap:8px;background:#f3f7fc;border-radius:10px;padding:11px 8px">'
++ist(insee.population!=null?euro(insee.population):"n.c.","Population")
++ist(insee.revenu!=null?euro(insee.revenu)+" &euro;":"n.c.","Revenu m&eacute;dian")
++ist(insee.pct_prop!=null?e1(insee.pct_prop)+" %":"n.c.","Propri&eacute;taires")
++ist(insee.pct_loc!=null?e1(insee.pct_loc)+" %":"n.c.","Locataires")+'</div></div>';
+var lecture=eaLectureMarche(rdt,insee,progKeys.length);
+var lectBlk='<div style="flex:1">'+secT("Lecture march&eacute;",VERT)+'<div style="background:#e9f5f0;border-left:4px solid '+VERT+';border-radius:0 10px 10px 0;padding:11px 13px;font-size:11.5px;line-height:1.55;color:#15473a">'+lecture+'</div></div>';
+var bottom='<div style="display:flex;gap:22px;margin:18px 0 0">'+inseeBlk+lectBlk+'</div>';
+/* E. pied */
+var foot='<div style="margin-top:18px;padding-top:8px;border-top:1px solid #e0e6ef;font-size:9px;color:#6b7280;display:flex;justify-content:space-between"><span>Sources : SeLoger &amp; SeLoger Neuf (scraping du '+eaDate((loc&&loc.scrapedAt)||(nf&&nf.scrapedAt))+') &middot; INSEE / geo.api.gouv.fr &middot; Wikipedia</span><span>Document indicatif, non contractuel &middot; Elizabeth Holding</span></div>';
+return '<div id="ea-pdf-page" style="width:794px;min-height:1116px;background:#ffffff;font-family:Inter,-apple-system,Segoe UI,Roboto,sans-serif;box-sizing:border-box;display:flex;flex-direction:column">'+head+'<div style="padding:0 26px 18px;flex:1;display:flex;flex-direction:column">'+kpis+cols+bottom+'<div style="flex:1"></div>'+foot+'</div></div>'}
+/* telechargement PDF : conteneur dedie RENDU (hors ecran), attente images,
+   puis html2canvas scale 2 + jsPDF a4. */
 function eaLoadHtml2pdf(){if(window.html2pdf)return Promise.resolve();
 return new Promise(function(ok,ko){var sc=document.createElement("script");sc.src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";sc.onload=ok;sc.onerror=ko;document.head.appendChild(sc)})}
-function eaDownloadPdf(){var el=document.getElementById("ea-combodoc");if(!el||!eaComboFD)return;
+function eaPdfStage(fd){
+var old=document.getElementById("ea-pdf-stage");if(old)old.remove();
+var stage=document.createElement("div");stage.id="ea-pdf-stage";
+stage.style.cssText="position:absolute;left:-9999px;top:0;width:794px;background:#fff";
+stage.innerHTML=eaBuildPdfPage(fd);
+document.body.appendChild(stage);
+var imgs=[].slice.call(stage.querySelectorAll("img"));
+return Promise.all(imgs.map(function(im){return (im.complete&&im.naturalWidth>0)?Promise.resolve():new Promise(function(ok){im.onload=ok;im.onerror=ok;setTimeout(ok,5000)})}))
+.then(function(){return new Promise(function(ok){setTimeout(ok,150)})})
+.then(function(){return stage})}
+function eaDownloadPdf(){
+if(!eaComboFD)return;
 var btn=document.getElementById("ea-pdf-btn");if(btn){btn.disabled=true;btn.textContent="Génération du PDF…"}
-eaLoadHtml2pdf().then(function(){
-var ville=(eaComboFD.loc.ville||eaComboFD.neuf.ville||"ville");
+var ville=(eaComboFD.loc&&eaComboFD.loc.ville)||(eaComboFD.neuf&&eaComboFD.neuf.ville)||"ville";
+Promise.all([eaLoadHtml2pdf(),eaVillePhoto(ville),eaComboFD.insee?Promise.resolve(eaComboFD.insee):eaFetchInsee(ville)])
+.then(function(rr){eaComboFD.insee=rr[2]||eaComboFD.insee||{};
+return eaPdfStage({loc:eaComboFD.loc,neuf:eaComboFD.neuf,insee:eaComboFD.insee,photo:rr[1]})})
+.then(function(stage){
 var name="Etude-"+ville.replace(/\s+/g,"-")+"-"+new Date().toISOString().slice(0,10)+".pdf";
-return html2pdf().set({margin:[10,9],filename:name,image:{type:"jpeg",quality:0.95},html2canvas:{scale:2,useCORS:true},jsPDF:{unit:"mm",format:"a4",orientation:"portrait"},pagebreak:{mode:["css","legacy"],avoid:["tr","table"]}}).from(el).save()})
-.catch(function(e){console.warn("html2pdf indisponible, fallback impression",e);window.print()})
-.then(function(){if(btn){btn.disabled=false;btn.innerHTML="&#11015;&#65039; Télécharger la fiche PDF"}})}
+return html2pdf().set({margin:0,filename:name,image:{type:"jpeg",quality:0.95},html2canvas:{scale:2,useCORS:true,backgroundColor:"#ffffff",windowWidth:794},jsPDF:{unit:"mm",format:"a4",orientation:"portrait"}}).from(stage.firstElementChild).save()
+.then(function(){stage.remove()})})
+.catch(function(e){console.error("PDF",e);toast("Échec de génération du PDF")})
+.then(function(){if(btn){btn.disabled=false;btn.innerHTML="&#11015;&#65039; Télécharger la fiche PDF (synthèse 1 page)"}})}
 
 /* clic "Lancer l'étude" : location, vente neuf, ou étude complète (les 2) */
 if(eaRun)eaRun.onclick=function(){
