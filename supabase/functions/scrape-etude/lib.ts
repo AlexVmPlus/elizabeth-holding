@@ -423,6 +423,13 @@ export interface RawAnnonce {
   loyer: number | null;
   surface: number | null;
   pieces: number | null;
+  meuble?: boolean;
+}
+
+// Meuble : detection sur le titre + la description du bloc (SeLoger ecrit
+// "Appartement meublé", "Studio meublé"...). Defaut : non meuble.
+export function parseMeuble(text: string | null | undefined): boolean {
+  return /meubl[eé]/i.test(text || "") && !/non[ -]meubl/i.test(text || "");
 }
 
 // Nettoie une URL capturee depuis le markdown : un lien markdown peut s'ecrire
@@ -477,6 +484,7 @@ export function parseAnnonces(markdown: string, links: unknown): RawAnnonce[] {
         loyer: parseLoyer(block),
         surface: parseSurface(block),
         pieces: parsePieces(block) ?? parsePieces(a.title),
+        meuble: parseMeuble(block),
       });
     }
   } else {
@@ -494,6 +502,7 @@ export function parseAnnonces(markdown: string, links: unknown): RawAnnonce[] {
         loyer: parseLoyer(block),
         surface: parseSurface(block),
         pieces: parsePieces(block),
+        meuble: parseMeuble(block),
       });
     }
   }
@@ -528,6 +537,7 @@ export interface Row {
   url: string | null;
   source: string;
   titre: string | null;
+  meuble: boolean | null;
   scraped_at: string;
 }
 
@@ -567,6 +577,7 @@ export function annonceToRow(a: RawAnnonce, ctx: RowCtx): Row | null {
     url: a.url,
     source: "firecrawl",
     titre: a.titre,
+    meuble: isLoc ? (a.meuble ?? false) : null,
     scraped_at: ctx.scrapedAt,
   };
 }
@@ -606,6 +617,62 @@ export interface StatRow {
   loyer_hc: number | null;
   prix_m2_cc: number | null;
   prix_m2_hc: number | null;
+}
+
+// ----------------------------------------------------------------------------
+// Double loyer MEUBLE / NON MEUBLE (location), par typologie + global.
+// Les loyers observes manquants sont COMPLETES par conversion : meuble =
+// non-meuble x1,15 ; non-meuble = meuble x0,85 (appliquee sur le loyer CC,
+// les charges reelles etant indisponibles -> precise dans `base`).
+// Prix final = moyenne ponderee par surface des observes + des convertis.
+// `*_source` = "observe" si au moins une annonce reelle, sinon "estime".
+// ----------------------------------------------------------------------------
+export interface MeubleRow {
+  surface: number;
+  typologie: string | null;
+  prix_m2_cc: number | null;
+  meuble?: boolean | null;
+}
+
+export function synthesizeMeuble(rows: MeubleRow[]) {
+  const calc = (arr: MeubleRow[]) => {
+    let sNM = 0, wNM = 0, obsNM = 0;
+    let sM = 0, wM = 0, obsM = 0;
+    for (const r of arr) {
+      if (r.prix_m2_cc == null || !r.surface) continue;
+      const w = r.surface;
+      if (r.meuble) {
+        sM += r.prix_m2_cc * w;
+        wM += w;
+        obsM++;
+        sNM += r.prix_m2_cc * 0.85 * w;
+        wNM += w;
+      } else {
+        sNM += r.prix_m2_cc * w;
+        wNM += w;
+        obsNM++;
+        sM += r.prix_m2_cc * 1.15 * w;
+        wM += w;
+      }
+    }
+    if (!wNM && !wM) return null;
+    return {
+      non_meuble: wNM ? round(sNM / wNM) : null,
+      non_meuble_source: obsNM > 0 ? "observe" : "estime",
+      nb_non_meuble: obsNM,
+      meuble: wM ? round(sM / wM) : null,
+      meuble_source: obsM > 0 ? "observe" : "estime",
+      nb_meuble: obsM,
+    };
+  };
+  const groups: Record<string, MeubleRow[]> = {};
+  for (const r of rows) (groups[r.typologie || "?"] ||= []).push(r);
+  const parTypologie: Record<string, ReturnType<typeof calc>> = {};
+  for (const t of ["T1", "T2", "T3", "T4", "T5", "T6"]) {
+    if (groups[t]) parTypologie[t] = calc(groups[t]);
+  }
+  if (groups["?"]) parTypologie["autre"] = calc(groups["?"]);
+  return { parTypologie, global: calc(rows), base: "CC", coefMeuble: 1.15 };
 }
 
 export function synthesize(rows: StatRow[], transaction: Transaction) {

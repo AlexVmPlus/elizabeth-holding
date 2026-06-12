@@ -27,6 +27,8 @@ import {
   matchesTypologie,
   mergeCharges,
   parseAnnonces,
+  parseMeuble,
+  synthesizeMeuble,
   parseCharges,
   parseLoyer,
   parsePieces,
@@ -471,4 +473,40 @@ Deno.test("parseNeufMeta : TVA 5,5% detectee, sinon 20%", () => {
   assertEquals(parseNeufMeta("# X\n\nÉligibilité\n\nLMNPTVA 5,5%PTZ").tva, "5,5%");
   assertEquals(parseNeufMeta("# X\n\nTVA réduite").tva, "5,5%");
   assertEquals(parseNeufMeta("# X\n\nLMNP PTZ").tva, "20%");
+});
+
+Deno.test("parseMeuble : detection meuble (defaut non meuble)", () => {
+  assertEquals(parseMeuble("Appartement meublé à louer - Bordeaux"), true);
+  assertEquals(parseMeuble("Studio meuble lumineux"), true);
+  assertEquals(parseMeuble("Appartement non meublé"), false);
+  assertEquals(parseMeuble("Appartement 3 pièces"), false);
+  assertEquals(parseMeuble(null), false);
+});
+
+Deno.test("synthesizeMeuble : observes + convertis (x1,15 / x0,85 sur CC)", () => {
+  const rows = [
+    { surface: 20, typologie: "T1", prix_m2_cc: 30, meuble: true },  // meuble observe
+    { surface: 20, typologie: "T1", prix_m2_cc: 20, meuble: false }, // non meuble observe
+  ];
+  const s = synthesizeMeuble(rows);
+  const t1 = s.parTypologie.T1!;
+  // NM pondere : (30*0.85*20 + 20*20)/40 = (510+400)/40 = 22.75
+  assertEquals(t1.non_meuble, 22.75);
+  assertEquals(t1.non_meuble_source, "observe");
+  // M pondere : (30*20 + 20*1.15*20)/40 = (600+460)/40 = 26.5
+  assertEquals(t1.meuble, 26.5);
+  assertEquals(t1.meuble_source, "observe");
+  // que du non meuble -> meuble ESTIME = x1,15
+  const s2 = synthesizeMeuble([{ surface: 40, typologie: "T2", prix_m2_cc: 20, meuble: false }]);
+  assertEquals(s2.parTypologie.T2!.meuble, 23); // 20*1.15
+  assertEquals(s2.parTypologie.T2!.meuble_source, "estime");
+  assertEquals(s2.parTypologie.T2!.non_meuble_source, "observe");
+  assertEquals(s2.base, "CC");
+});
+
+Deno.test("parseAnnonces : meuble extrait du bloc", () => {
+  const md = `[Appartement meublé 2 pièces 40 m²](https://www.seloger.com/annonces/locations/appartement/bordeaux-33/x/1.htm)\n900 € CC/mois\n\n[Appartement 3 pièces 60 m²](https://www.seloger.com/annonces/locations/appartement/bordeaux-33/y/2.htm)\n1100 €`;
+  const a = parseAnnonces(md, []);
+  assertEquals(a[0].meuble, true);
+  assertEquals(a[1].meuble, false);
 });

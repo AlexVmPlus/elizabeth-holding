@@ -7,3 +7,7 @@ project_id = "wywndgujgtyyzzhviagu"
 # NB : l'endpoint devient public — voir le README pour limiter les abus (cout Apify).
 [functions.scrape-etude]
 verify_jwt = false
+
+# Generation serveur de la fiche PDF (jsPDF) — appelee depuis le navigateur.
+[functions.fiche-pdf]
+verify_jwt = false

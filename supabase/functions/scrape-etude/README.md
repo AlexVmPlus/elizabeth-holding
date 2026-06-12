@@ -170,6 +170,25 @@ Le front enchaine location PUIS vente neuf (memes ville/quartier), puis genere
 une fiche combinee (loyers, prix neuf, rendement brut par typologie, top
 programmes avec TVA, INSEE) telechargeable en PDF (html2pdf, 2-3 pages).
 
+## Meuble / non meuble (location)
+
+Chaque annonce porte `meuble` (detection titre+description, defaut non meuble,
+colonne `etudes_marche.meuble`, migration `20260612020000`). La reponse
+location inclut `loyersMeuble` : double loyer **non meuble / meuble** par
+typologie + global, pondere par surface. Les observations manquantes sont
+completees par conversion (meuble = non meuble x1,15 ; inverse x0,85),
+appliquee sur le loyer **CC** (charges reelles indisponibles) ; chaque valeur
+porte `*_source` = "observe" ou "estime". Le filtre `neufOnly` a ete retire
+(doublon du filtre annee).
+
+## Edge Function `fiche-pdf`
+
+La fiche de synthese 1 page A4 est generee COTE SERVEUR (`fiche-pdf`, jsPDF
+par positionnement — html2canvas produisait des PDF blancs). Recoit
+`{ loc, neuf, insee }`, recupere la photo de la ville via Wikipedia REST
+(serveur, pas de CORS), renvoie `application/pdf`. Deploiement :
+`supabase functions deploy fiche-pdf --project-ref wywndgujgtyyzzhviagu`.
+
 ## Secret
 
 `SUPABASE_URL` et `SUPABASE_SERVICE_ROLE_KEY` sont **injectés automatiquement**.

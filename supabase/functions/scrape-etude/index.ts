@@ -35,7 +35,6 @@ import {
   isPlausible,
   isPlausibleNeuf,
   matchesAnnee,
-  matchesNeuf,
   matchesTypologie,
   neufListUrl,
   neufProgramLinks,
@@ -43,6 +42,7 @@ import {
   parseAnnonces,
   parseNeufMeta,
   parseNeufUnits,
+  synthesizeMeuble,
   type Row,
   selogerCode,
   seoLocationUrl,
@@ -80,7 +80,6 @@ interface ReqBody {
   quartier?: string;
   transaction?: Transaction | "vente_neuf";
   typologie?: string;
-  neufOnly?: boolean;
   anneeMin?: number | string;
   // phase "page"
   code?: string;
@@ -254,6 +253,7 @@ function toAnnonce(r: any) {
     ville: r.ville,
     code_postal: r.code_postal,
     url: r.url,
+    meuble: r.meuble ?? null,
   };
 }
 
@@ -275,6 +275,7 @@ function toInsertRow(a: any, transaction: Transaction, scrapedAt: string) {
     url: a.url ?? null,
     source: "firecrawl",
     titre: a.titre ?? null,
+    meuble: a.meuble ?? null,
     scraped_at: scrapedAt,
   };
 }
@@ -282,12 +283,11 @@ function toInsertRow(a: any, transaction: Transaction, scrapedAt: string) {
 // Filtres post-recuperation communs aux phases "start" et "page" :
 // exclusions systematiques (colocations, surfaces/prix aberrants) puis filtres
 // utilisateur. applyAnnee = false quand l'annee est deja filtree cote serveur.
-function makeFilters(typoFilter: string | null, neufOnly: boolean, anneeMin: number | null, transaction: Transaction) {
+function makeFilters(typoFilter: string | null, anneeMin: number | null, transaction: Transaction) {
   // deno-lint-ignore no-explicit-any
   return (arr: any[], applyAnnee = true) => {
     let out = arr.filter((r) => !isColocation(r.titre, r.url) && isPlausible(r.surface, r.prix_m2_cc, transaction));
     if (typoFilter) out = out.filter((r) => matchesTypologie(r.nb_pieces, typoFilter));
-    if (neufOnly) out = out.filter((r) => matchesNeuf(r.titre));
     if (anneeMin && applyAnnee) {
       const f = out.filter((r) => matchesAnnee(r.titre, anneeMin));
       out = f.length ? f : out; // best-effort : ne vide jamais tout
@@ -308,12 +308,11 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   const quartier = (body.quartier || "").trim();
   const transaction: Transaction = body.transaction === "vente" ? "vente" : "location";
   const typoFilter = /^T[1-6]$/.test(String(body.typologie || "")) ? String(body.typologie) : null;
-  const neufOnly = body.neufOnly === true;
   const anneeMin = num(body.anneeMin);
   if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
 
-  const applyFilters = makeFilters(typoFilter, neufOnly, anneeMin, transaction);
-  const filtres = { typologie: typoFilter, neufOnly, anneeMin };
+  const applyFilters = makeFilters(typoFilter, anneeMin, transaction);
+  const filtres = { typologie: typoFilter, anneeMin };
 
   const city = await resolveCityOrArr(ville);
   if (!city || !city.citycode) return json({ error: "ville introuvable" }, 404);
@@ -390,6 +389,7 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
     ville: city.nom, quartier: quartier || null, transaction, searchUrl, filtres,
     annoncesRetenues: partielles.length, annonces: partielles, note,
     parTypologie: s.parTypologie, global: s.global,
+    loyersMeuble: transaction === "location" ? synthesizeMeuble(partielles) : null,
   });
 }
 
@@ -404,7 +404,6 @@ async function handlePage(body: ReqBody, env: Env): Promise<Response> {
   const quartier = (body.quartier || "").trim();
   const transaction: Transaction = body.transaction === "vente" ? "vente" : "location";
   const typoFilter = /^T[1-6]$/.test(String(body.typologie || "")) ? String(body.typologie) : null;
-  const neufOnly = body.neufOnly === true;
   const anneeMin = num(body.anneeMin);
   if (!code || !ville) return json({ error: "code lieu et ville obligatoires" }, 400);
 
@@ -418,7 +417,7 @@ async function handlePage(body: ReqBody, env: Env): Promise<Response> {
   const ctx = { ville, quartier: quartier || null, code_postal: body.codePostal || null, transaction, scrapedAt };
   let rows: Row[] = raw.map((a) => annonceToRow(a, ctx)).filter((r): r is Row => r !== null && !!r.url);
   // annee deja filtree cote serveur (classified) -> applyAnnee=false
-  rows = makeFilters(typoFilter, neufOnly, anneeMin, transaction)(rows, false);
+  rows = makeFilters(typoFilter, anneeMin, transaction)(rows, false);
   console.log(`[page ${page}] ${rows.length} annonces retenues`);
   return json({ phase: "page", page, creditsEstimes: 1, annonces: rows.map(toAnnonce) });
 }
@@ -679,6 +678,7 @@ async function handleFinalize(body: ReqBody, env: Env): Promise<Response> {
     ville: ville || null, quartier: quartier || null, transaction,
     annoncesRetenues: annonces.length, annonces: annonces.map(toAnnonce),
     parTypologie: s.parTypologie, global: s.global,
+    loyersMeuble: transaction === "location" ? synthesizeMeuble(annonces) : null,
     creditsEstimes: num(body.credits) ?? 0, // comptes par le front (1/page + resolution)
   });
 }
