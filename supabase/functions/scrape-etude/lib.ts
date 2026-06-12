@@ -57,15 +57,21 @@ export function buildListUrl(seloCode: number, transaction: Transaction, page = 
 }
 
 // ----------------------------------------------------------------------------
-// URL classified-search : SEUL format qui applique un VRAI filtre annee de
-// construction (yearOfConstructionMin). Necessite un code lieu SeLoger au
-// format AD..FR.. (resolu cote serveur via l'autocomplete, cf. index.ts).
+// URL classified-search : format moderne SeLoger. SEUL format qui applique un
+// VRAI filtre annee de construction (yearOfConstructionMin) ET dont la
+// pagination fonctionne via Firecrawl (&page=N : 0 doublon teste entre pages,
+// la ou list.htm&LISTING-LISTpg=2 renvoie ~80% de doublons). Necessite un code
+// lieu AD..FR.. (resolu via la page SEO de la ville, cf. index.ts).
+// Valide le 12/06/2026 : Bordeaux AD08FR13100 sans filtre 1819 annonces,
+// >=2020 -> 64, >=2025 -> 28 ; Lyon AD08FR28808 >=2020 -> 83, >=2025 -> 28.
 // ----------------------------------------------------------------------------
-export function buildClassifiedUrl(code: string, transaction: Transaction, anneeMin: number): string {
+export function buildClassifiedUrl(code: string, transaction: Transaction, anneeMin: number | null, page = 1): string {
   const dist = transaction === "vente" ? "Buy" : "Rent";
-  return `https://www.seloger.com/classified-search?distributionTypes=${dist}` +
-    `&estateTypes=Apartment,House&locations=${encodeURIComponent(code)}` +
-    `&yearOfConstructionMin=${anneeMin}`;
+  let url = `https://www.seloger.com/classified-search?distributionTypes=${dist}` +
+    `&estateTypes=Apartment,House&locations=${encodeURIComponent(code)}`;
+  if (anneeMin) url += `&yearOfConstructionMin=${anneeMin}`;
+  if (page > 1) url += `&page=${page}`;
+  return url;
 }
 
 // Extrait un code lieu classified-search (format AD<digits>FR<alnum>) d'un
@@ -74,6 +80,54 @@ export function extractClassifiedCode(text: string): string | null {
   if (!text) return null;
   const m = text.match(/AD\d+FR[A-Za-z0-9]+/);
   return m ? m[0] : null;
+}
+
+// Slug SeLoger d'un nom de ville : minuscules, accents retires, tout caractere
+// non alphanumerique -> tiret ("L'Haÿ-les-Roses" -> "l-hay-les-roses").
+export function villeSlug(ville: string): string {
+  return ville
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+// Page SEO "immobilier/locations/immo-<slug>-<dept>/" : se charge via
+// Firecrawl (pas de blocage DataDome constate) et embarque ~100 fois le code
+// lieu AD08FR.. de la ville dans son JSON. C'est notre source de resolution
+// des codes classified-search (l'autocomplete moderne est elle bloquee :
+// HTTP 403 DataDome en direct, 404 via Firecrawl).
+export function seoLocationUrl(ville: string, dept: string): string {
+  return `https://www.seloger.com/immobilier/locations/immo-${villeSlug(ville)}-${dept}/`;
+}
+
+// Code lieu VILLE (prefixe AD08FR) le plus frequent dans le HTML d'une page
+// SeLoger : le code de la ville de la page apparait dans chaque lien d'annonce
+// (~100x), les codes parents (region/departement) ~30x, les voisins 1-3x.
+export function extractCityCode(html: string): string | null {
+  if (!html) return null;
+  const counts = new Map<string, number>();
+  for (const m of html.matchAll(/AD08FR[A-Za-z0-9]+/g)) {
+    counts.set(m[0], (counts.get(m[0]) || 0) + 1);
+  }
+  let best: string | null = null;
+  let bestN = 0;
+  for (const [code, n] of counts) {
+    if (n > bestN) {
+      best = code;
+      bestN = n;
+    }
+  }
+  // Au moins quelques occurrences, sinon code douteux (page vide/erreur).
+  return bestN >= 3 ? best : null;
+}
+
+// Une page classified-search avec peu de resultats exacts est completee par
+// une section "Plus d'annonces à proximité" (autres villes !) : on coupe le
+// markdown a ce marqueur pour ne parser que les resultats exacts.
+export function cutProximity(markdown: string): string {
+  const i = (markdown || "").indexOf("Plus d'annonces à proximité");
+  return i >= 0 ? markdown.slice(0, i) : (markdown || "");
 }
 
 // ----------------------------------------------------------------------------
@@ -89,12 +143,13 @@ export function parseLoyer(text: string): number | null {
   return isFinite(n) && n > 0 ? n : null;
 }
 
-// Surface : "53 m²", "53m2" -> 53.
+// Surface : "53 m²", "53m2" -> 53 ; decimales FR "160,2 m²" -> 160.2 (sans le
+// groupe decimal optionnel, le regex matchait le "2" apres la virgule -> 2 m²).
 export function parseSurface(text: string): number | null {
   if (!text) return null;
-  const m = text.match(/(\d{1,4})\s*m(?:²|2)/i);
+  const m = text.match(/(\d{1,4}(?:[.,]\d{1,2})?)\s*m(?:²|2)/i);
   if (!m) return null;
-  const n = parseInt(m[1], 10);
+  const n = parseFloat(m[1].replace(",", "."));
   return isFinite(n) && n > 0 ? n : null;
 }
 

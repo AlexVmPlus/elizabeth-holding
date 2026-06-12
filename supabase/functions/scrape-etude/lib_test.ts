@@ -4,8 +4,12 @@ import {
   buildClassifiedUrl,
   buildListUrl,
   cleanUrl,
+  cutProximity,
   detailResult,
+  extractCityCode,
   extractClassifiedCode,
+  seoLocationUrl,
+  villeSlug,
   matchesAnnee,
   matchesNeuf,
   matchesTypologie,
@@ -100,9 +104,12 @@ Deno.test("parseLoyer : euros avec espaces/insecables", () => {
   assertEquals(parseLoyer("pas de prix"), null);
 });
 
-Deno.test("parseSurface : m2 / m²", () => {
+Deno.test("parseSurface : m2 / m² / decimales FR", () => {
   assertEquals(parseSurface("Appartement 53 m²"), 53);
   assertEquals(parseSurface("20m2"), 20);
+  assertEquals(parseSurface("Duplex 160,2 m², 7ème étage"), 160.2); // virgule FR (titres classified)
+  assertEquals(parseSurface("90.3 m²"), 90.3);
+  assertEquals(parseSurface("161 m², 1 000 m² de terrain"), 161); // 1ere surface = habitable
   assertEquals(parseSurface("studio sans surface"), null);
 });
 
@@ -262,4 +269,34 @@ Deno.test("synthese : prix/m2 pondere par surface", () => {
   // global : 2250/110 = 20.45
   assertEquals(s.global!.nb_annonces, 3);
   assertEquals(s.global!.prix_m2_cc_pondere, 20.45);
+});
+
+Deno.test("buildClassifiedUrl : pagination &page=N (p1 sans param)", () => {
+  assertEquals(buildClassifiedUrl("AD08FR13100", "location", null, 1).includes("page="), false);
+  assertEquals(buildClassifiedUrl("AD08FR13100", "location", null, 3).includes("&page=3"), true);
+  assertEquals(buildClassifiedUrl("AD08FR13100", "location", null, 2).includes("yearOfConstructionMin"), false);
+  const u = buildClassifiedUrl("AD08FR13100", "location", 2020, 2);
+  assertEquals(u.includes("yearOfConstructionMin=2020") && u.includes("&page=2"), true);
+});
+
+Deno.test("villeSlug / seoLocationUrl : slug SeLoger", () => {
+  assertEquals(villeSlug("Bordeaux"), "bordeaux");
+  assertEquals(villeSlug("Saint-Étienne"), "saint-etienne");
+  assertEquals(villeSlug("L'Haÿ-les-Roses"), "l-hay-les-roses");
+  assertEquals(seoLocationUrl("Bordeaux", "33"), "https://www.seloger.com/immobilier/locations/immo-bordeaux-33/");
+});
+
+Deno.test("extractCityCode : code AD08FR le plus frequent", () => {
+  // le code ville apparait dans chaque lien, les voisins 1-2 fois
+  const html = 'x AD08FR13100 y AD08FR13100 z AD08FR13100 AD08FR13315 AD02FR1 AD06FR34';
+  assertEquals(extractCityCode(html), "AD08FR13100");
+  assertEquals(extractCityCode("AD08FR9 une-seule-occurrence"), null); // < 3 occurrences -> douteux
+  assertEquals(extractCityCode(""), null);
+});
+
+Deno.test("cutProximity : coupe la section 'Plus d'annonces à proximité'", () => {
+  const md = "annonce exacte 800 € 40 m²\n\nPlus d'annonces à proximité\n\nannonce voisine 900 € 50 m²";
+  assertEquals(cutProximity(md).includes("voisine"), false);
+  assertEquals(cutProximity(md).includes("exacte"), true);
+  assertEquals(cutProximity("sans section"), "sans section");
 });

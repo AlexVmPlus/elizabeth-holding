@@ -180,8 +180,8 @@ tr.ea-rowlink{cursor:pointer}tr.ea-rowlink:hover td{background:var(--bsoft)}.ea-
 <div class="g2"><div class="fld"><label>Ville *</label><input id="ea-ville" placeholder="ex. Bordeaux" autocomplete="off"></div><div class="fld" id="ea-qwrap" style="position:relative"><label>Quartier (optionnel)</label><input id="ea-quartier" placeholder="ex. Saint Jean-Belcier" autocomplete="off"><div class="sugg" id="ea-qsg" style="top:calc(100% + 4px)"></div></div></div>
 <div class="fld"><label>Transaction</label><select id="ea-transaction"><option value="location">Location</option><option value="vente">Vente</option></select></div>
 <div class="gt" style="margin-top:18px">Filtres (optionnels)</div>
-<div class="g2"><div class="fld"><label>Typologie</label><select id="ea-typologie"><option value="">Toutes</option><option value="T1">Studio/T1</option><option value="T2">T2</option><option value="T3">T3</option><option value="T4">T4</option><option value="T5">T5</option><option value="T6">T6</option></select></div><div class="fld"><label>Nombre max d'annonces</label><select id="ea-max"><option value="20">20</option><option value="30" selected>30</option><option value="50">50</option><option value="100">100</option><option value="toutes">Toutes (~25/page)</option></select></div></div>
-<div class="g2"><div class="fld"><label>Année de construction min</label><input id="ea-annee" type="number" min="1900" max="2030" placeholder="ex. 2020 (neuf/recent)"><span class="hint" style="display:block;margin-top:4px">Filtre les programmes récents (&ge; cette année)</span></div>
+<div class="g2"><div class="fld"><label>Typologie</label><select id="ea-typologie"><option value="">Toutes</option><option value="T1">Studio/T1</option><option value="T2">T2</option><option value="T3">T3</option><option value="T4">T4</option><option value="T5">T5</option><option value="T6">T6</option></select></div><div class="fld"><label>Nombre max d'annonces</label><select id="ea-max"><option value="20">20</option><option value="30" selected>30</option><option value="50">50</option><option value="100">100</option><option value="toutes">Max (100, ~4 pages)</option></select></div></div>
+<div class="g2"><div class="fld"><label>Année de construction min</label><input id="ea-annee" type="number" min="1900" max="2030" placeholder="ex. 2020, 2025..."><span class="hint" style="display:block;margin-top:4px">Vrai filtre SeLoger : ne garde que les biens construits &ge; cette année</span></div>
 <div class="fld"><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;margin-top:24px"><input type="checkbox" id="ea-neuf" style="accent-color:var(--blue);width:16px;height:16px;margin:0">Neuf uniquement</label><span class="hint" style="display:block;margin-top:4px">Logements neufs (selon SeLoger)</span></div></div>
 <button id="ea-run" class="btn bp" style="width:100%;margin-top:8px">Lancer l'étude</button>
 <p class="hint" style="margin:14px 0 0">&#128274; Le lancement est protégé par mot de passe (consommation de crédit). La consultation du site reste libre.</p>
@@ -452,11 +452,12 @@ if(f.typologie)notes.push("typologie "+f.typologie);
 if(f.anneeMin)notes.push("année &ge; "+f.anneeMin);
 if(f.neufOnly)notes.push("neuf uniquement");}
 var filtreLine=notes.length?'<div style="padding:0 24px 6px;color:var(--soft);font-size:13px">Filtres : '+notes.join(" &middot; ")+'</div>':'';
+if(j.note)filtreLine+='<div style="padding:0 24px 6px;color:#9a6700;font-size:13px">&#9888;&#65039; '+eaEsc(j.note)+'</div>';
 var foot='<div style="padding:6px 24px 18px;color:var(--soft);font-size:13px">Source : SeLoger &middot; vue de vérification brute (chaque ligne ouvre l\'annonce). '+(j.inserted!=null?j.inserted+' annonce'+(j.inserted>1?'s':'')+' enregistrée'+(j.inserted>1?'s':'')+' en base.':'')+'</div>';
 return '<div class="card" id="ea-prefiche">'+head+filtreLine+table+foot+'</div>'}
 /* banniere de progression / succes au-dessus de la pre-fiche */
 function eaProgress(text,credits){return '<div class="card" id="ea-banner" style="padding:16px 22px;display:flex;align-items:center;gap:14px;margin-bottom:16px"><div class="spinner" style="width:26px;height:26px;border-width:3px;margin:0"></div><div><b>'+eaEsc(text)+'</b>'+(credits!=null?'<div style="color:var(--soft);font-size:13px;margin-top:2px">&#8776; '+credits+' crédits Firecrawl</div>':'')+'</div></div>'}
-function eaDone(text,credits,fromCache){return '<div class="card" id="ea-banner" style="padding:14px 22px;margin-bottom:16px;border-left:4px solid var(--teal)"><b>&#10003; '+eaEsc(text)+'</b><span style="color:var(--soft);font-size:13px;margin-left:8px">'+(fromCache?'depuis le cache (0 crédit)':(credits!=null?'&#8776; '+credits+' crédits Firecrawl':''))+'</span></div>'}
+function eaDone(text,credits){return '<div class="card" id="ea-banner" style="padding:14px 22px;margin-bottom:16px;border-left:4px solid var(--teal)"><b>&#10003; '+eaEsc(text)+'</b><span style="color:var(--soft);font-size:13px;margin-left:8px">données fraîches'+(credits!=null?' &middot; &#8776; '+credits+' crédits Firecrawl':'')+'</span></div>'}
 /* appel API (start ou poll) -> json, throw si erreur */
 function eaApi(body){return fetch(EA_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+EA_KEY},body:JSON.stringify(body)}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error((j&&(j.error||j.detail))||("HTTP "+r.status));return j},function(){throw new Error("Réponse invalide (HTTP "+r.status+")")})})}
 /* cable le clic sur les lignes de la pre-fiche (ouvre l'annonce) */
@@ -465,14 +466,18 @@ function eaWireRows(){[].forEach.call(eaResult.querySelectorAll("tr.ea-rowlink")
 var eaLastRes=null;
 function eaShowResult(res){eaLastRes=res;
 var nb=res.annoncesRetenues!=null?res.annoncesRetenues:((res.annonces&&res.annonces.length)||0);
-var banner=eaDone((nb||0)+" annonce"+(nb>1?"s":"")+" récupérée"+(nb>1?"s":""),res.creditsEstimes,res.fromCache);
+var banner=eaDone((nb||0)+" annonce"+(nb>1?"s":"")+" récupérée"+(nb>1?"s":""),res.creditsEstimes);
 var btn=(res.global&&nb)?'<div class="no-print" style="text-align:center;margin:22px 0 6px"><button id="ea-genfiche" class="btn bp" style="padding:14px 30px;font-size:16px">&#128202; Générer la fiche complète</button></div>':'';
 eaResult.innerHTML=banner+eaPrefiche(res)+btn+'<div id="ea-fiche-zone" style="margin-top:8px"></div>';
 if(window.gsap)gsap.from("#ea-prefiche",{y:18,opacity:0,duration:.45,ease:"power3.out"});
 eaWireRows();
 var g=document.getElementById("ea-genfiche");if(g)g.onclick=function(){eaGenerateFiche(eaLastRes)};
 eaRun.disabled=false;eaRun.textContent="Lancer l'étude"}
-/* clic "Lancer l'étude" : start (1 scrape liste) -> pre-fiche */
+/* dedoublonnage par URL SANS query-string : la meme annonce porte des params
+   de tracking differents d'une page a l'autre (serp_view, search...) */
+function eaUrlKey(a){return String((a&&a.url)||"").split("?")[0]}
+function eaCollect(into,seen,annonces){var n=0;(annonces||[]).forEach(function(a){var k=eaUrlKey(a);if(k&&seen[k])return;if(k)seen[k]=1;into.push(a);n++});return n}
+/* clic "Lancer l'étude" : start (page 1) -> phases "page" 2..4 si besoin -> finalize */
 if(eaRun)eaRun.onclick=function(){
 var ville=document.getElementById("ea-ville").value.trim();if(!ville){toast("Ville obligatoire");return}
 var body={phase:"start",ville:ville,quartier:document.getElementById("ea-quartier").value.trim(),transaction:document.getElementById("ea-transaction").value};
@@ -480,16 +485,45 @@ var typo=document.getElementById("ea-typologie").value;if(typo)body.typologie=ty
 var maxSel=document.getElementById("ea-max").value;body.maxItems=(maxSel==="toutes")?100:(parseInt(maxSel,10)||30);
 var annee=eaVal("ea-annee");if(annee!=null)body.anneeMin=annee;
 if(document.getElementById("ea-neuf").checked)body.neufOnly=true;
+function eaFail(err){console.error("etude-auto",err);eaResult.innerHTML=eaError((err&&err.message)||"Échec de l'étude.");eaRun.disabled=false;eaRun.textContent="Lancer l'étude"}
 requireAuth(function(){eaRun.disabled=true;eaRun.textContent="Récupération…";eaResult.innerHTML=eaProgress("Récupération des annonces SeLoger… (~15 s)",null);
-eaApi(body).then(function(res){eaShowResult(res)})
-.catch(function(err){console.error("start",err);eaResult.innerHTML=eaError((err&&err.message)||"Échec de l'étude.");eaRun.disabled=false;eaRun.textContent="Lancer l'étude"})})};
+eaApi(body).then(function(res){
+if(res.done){eaShowResult(res);return}
+/* pagination : le serveur a renvoye la page 1 + le code lieu, on enchaine */
+var credits=res.creditsEstimes||1,seen={},all=[];
+eaCollect(all,seen,res.annonces);
+function finalize(){
+eaResult.innerHTML=eaProgress("Synthèse et enregistrement… ("+all.length+" annonces)",credits);
+return eaApi({phase:"finalize",ville:res.ville,quartier:body.quartier,transaction:body.transaction,annonces:all.slice(0,body.maxItems),credits:credits})
+.then(function(fin){if(res.note&&!fin.note)fin.note=res.note;eaShowResult(fin)})}
+function next(pg){
+if(pg>(res.pagesPrevues||1)||all.length>=body.maxItems)return finalize();
+eaResult.innerHTML=eaProgress("Annonces SeLoger : page "+pg+"/"+res.pagesPrevues+"… ("+all.length+" récupérées)",credits);
+return eaApi({phase:"page",page:pg,code:res.code,ville:res.ville,quartier:body.quartier,codePostal:res.codePostal,transaction:body.transaction,typologie:body.typologie,anneeMin:body.anneeMin,neufOnly:body.neufOnly})
+.then(function(r){credits+=(r.creditsEstimes||1);
+var fresh=eaCollect(all,seen,r.annonces);
+if(!fresh){console.warn("etude-auto: page "+pg+" -> aucune annonce nouvelle (doublons) : arrêt de la pagination");return finalize()}
+return next(pg+1)})
+.catch(function(e){console.warn("etude-auto: page "+pg+" en échec, on garde "+all.length+" annonces",e);return finalize()})}
+return next(2);
+})
+.catch(eaFail)})};
 
-/* ====== AUTOCOMPLETION QUARTIER (quartiers connus de la ville en base) ====== */
+/* ====== AUTOCOMPLETION QUARTIER ======
+   Sources fusionnees : quartiers officiels SeLoger (autocomplete legacy
+   autocomplete.svc.groupe-seloger.com : sans DataDome, CORS ouvert, 0 credit)
+   + quartiers deja connus en base (programmes / etudes_marche). */
 var eaQ=document.getElementById("ea-quartier"),eaQsg=document.getElementById("ea-qsg"),eaQcache={},eaQM=[],eaQai=-1;
 function eaQfetch(ville){var key=ville.toLowerCase();if(eaQcache[key])return Promise.resolve(eaQcache[key]);
 var h={apikey:EA_KEY,Authorization:"Bearer "+EA_KEY},q=encodeURIComponent(ville);
 function get(t){return fetch(EA_SUPA+"/"+t+"?ville=ilike."+q+"&select=quartier",{headers:h}).then(function(r){return r.ok?r.json():[]}).catch(function(){return[]})}
-return Promise.all([get("programmes"),get("etudes_marche")]).then(function(res){var set={};res[0].concat(res[1]).forEach(function(r){var qq=(r.quartier||"").trim();if(qq&&qq.toLowerCase()!=ville.toLowerCase())set[qq]=1});var list=Object.keys(set).sort(function(a,b){return a.localeCompare(b)});eaQcache[key]=list;return list})}
+function getSeLoger(){return fetch("https://autocomplete.svc.groupe-seloger.com/api/v2.0/auto/complete/fra/63/10/8/SeLoger?text="+q).then(function(r){return r.ok?r.json():[]}).then(function(arr){
+var v=(arr||[]).find(function(x){return x&&x.Type=="Ville"&&String(x.Tag||"").toLowerCase()==key})||(arr||[]).find(function(x){return x&&x.Type=="Ville"});
+var qs=(v&&v.Meta&&v.Meta.Quartiers)||[];return qs.map(function(x){return String(x.Name||"").trim()})}).catch(function(){return[]})}
+return Promise.all([get("programmes"),get("etudes_marche"),getSeLoger()]).then(function(res){var set={};
+res[0].concat(res[1]).forEach(function(r){var qq=(r.quartier||"").trim();if(qq&&qq.toLowerCase()!=key)set[qq]=1});
+res[2].forEach(function(n){if(n&&n.toLowerCase()!=key)set[n]=1});
+var list=Object.keys(set).sort(function(a,b){return a.localeCompare(b)});eaQcache[key]=list;return list})}
 function eaQrender(){if(!eaQM.length){eaQsg.classList.remove("show");eaQsg.innerHTML="";return}
 eaQsg.innerHTML=eaQM.map(function(qq,i){return '<div class="sug'+(i==eaQai?" active":"")+'" data-i="'+i+'"><span class="tag quartier">quartier</span><span>'+eaEsc(qq)+'</span></div>'}).join("");
 eaQsg.classList.add("show");[].forEach.call(eaQsg.querySelectorAll(".sug"),function(el){el.onclick=function(){eaQpick(eaQM[+el.dataset.i])}})}

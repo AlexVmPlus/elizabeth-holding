@@ -1,12 +1,18 @@
 // ============================================================================
 // Edge Function : scrape-etude  (Elizabeth Holding) — source : FIRECRAWL
 // Architecture "1 page scrapee par appel" (le FRONT orchestre la boucle) pour
-// rester loin des limites Supabase (WORKER_RESOURCE_LIMIT). 3 phases :
-//   - "start"    : 1 scrape (page liste) -> annonces partielles (loyer CC...).
-//   - "detail"   : 1 scrape (UNE page detail) -> charges / loyer_hc.
+// rester loin des limites Supabase (WORKER_RESOURCE_LIMIT). 4 phases :
+//   - "start"    : resolution code lieu (cache seloger_places, sinon 1 scrape
+//                  page SEO) + 1 scrape (page 1) -> annonces partielles.
+//   - "page"     : 1 scrape (page N de classified-search) -> annonces brutes.
+//   - "detail"   : 1 scrape (UNE page detail) -> charges (bloque DataDome,
+//                  conserve pour memoire, non appele par le front).
 //   - "finalize" : 0 scrape -> synthese ponderee + insertion en base.
-// On n'utilise PLUS le batch async (inutilisable sur le free tier) ni de boucle
-// de scrapes en serie dans la fonction.
+// Source des annonces : classified-search (code lieu AD..FR.. resolu via la
+// page SEO de la ville) -> vrai filtre annee (yearOfConstructionMin) + vraie
+// pagination (&page=N). Fallback list.htm (1 page, filtre annee best-effort)
+// si le code lieu est introuvable. PAS de cache de resultats : chaque etude
+// relance un vrai scraping (donnees toujours fraiches).
 //
 // SECRETS : FIRECRAWL_API_KEY (a definir) ; SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
 // (injectes automatiquement).
@@ -16,8 +22,9 @@ import {
   annonceToRow,
   buildClassifiedUrl,
   buildListUrl,
+  cutProximity,
   detailResult,
-  extractClassifiedCode,
+  extractCityCode,
   matchesAnnee,
   matchesNeuf,
   matchesTypologie,
@@ -25,6 +32,7 @@ import {
   parseAnnonces,
   type Row,
   selogerCode,
+  seoLocationUrl,
   synthesize,
   type Transaction,
 } from "./lib.ts";
@@ -38,12 +46,12 @@ const CORS: Record<string, string> = {
 };
 
 const FC_SCRAPE = "https://api.firecrawl.dev/v2/scrape";
-const CACHE_DAYS = 7;
-// La phase "start" ne scrape QU'UNE page liste (~25 annonces). maxItems plafonne
-// le nb d'annonces (donc d'appels "detail" cote front).
+// ~30 annonces par page classified-search ; 4 pages max (~100-120 annonces).
+const MAX_PAGES = 4;
+const PER_PAGE = 30;
 
 interface ReqBody {
-  phase?: "start" | "detail" | "finalize";
+  phase?: "start" | "page" | "detail" | "finalize";
   ville?: string;
   quartier?: string;
   transaction?: Transaction;
@@ -51,7 +59,11 @@ interface ReqBody {
   neufOnly?: boolean;
   anneeMin?: number | string;
   maxItems?: number;
-  forceRefresh?: boolean;
+  forceRefresh?: boolean; // ignore (plus de cache de resultats)
+  // phase "page"
+  code?: string;
+  page?: number;
+  codePostal?: string;
   // phase "detail"
   url?: string;
   loyer_cc?: number;
@@ -60,6 +72,7 @@ interface ReqBody {
   // phase "finalize"
   // deno-lint-ignore no-explicit-any
   annonces?: any[];
+  credits?: number; // credits reellement consommes, comptes par le front
 }
 
 interface Env {
@@ -106,17 +119,13 @@ async function fcScrape(url: string, key: string, formats: string[], waitFor: nu
 
 // ----------------------------------------------------------------------------
 // RESOLUTION DU CODE LIEU classified-search (AD..FR..) — cote serveur.
-// L'autocomplete renvoyant ces codes est protege par DataDome -> on passe par
-// Firecrawl (qui contourne DataDome) ; fetch direct en secours.
-// /!\ ENDPOINT A CONFIRMER : recopier l'URL exacte vue dans l'onglet Network
-//     d'une vraie recherche classified-search sur seloger.com. Le 1er endpoint
-//     qui renvoie un code AD..FR.. gagne ; sinon -> fallback list.htm.
+// Teste le 12/06/2026 : l'autocomplete moderne est inaccessible (403 DataDome
+// en direct, 404 via Firecrawl), MAIS la page SEO de la ville
+// (immobilier/locations/immo-<slug>-<dept>/) se charge via Firecrawl et
+// embarque le code AD08FR.. de la ville ~100 fois dans ses liens d'annonces
+// -> on prend le code AD08FR le plus frequent. 1 credit, une seule fois par
+// ville : le code est ensuite mis en cache dans la table seloger_places.
 // ----------------------------------------------------------------------------
-const CLASSIFIED_AUTOCOMPLETE: Array<{ url: (v: string) => string; via: "firecrawl" | "fetch" }> = [
-  { url: (v) => `https://www.seloger.com/search-mfe/api/v1/locations?text=${encodeURIComponent(v)}`, via: "firecrawl" },
-  { url: (v) => `https://www.seloger.com/search-bff/api/v1/locations/autocomplete?text=${encodeURIComponent(v)}`, via: "firecrawl" },
-];
-
 async function placeCacheGet(env: Env, ville: string): Promise<string | null> {
   try {
     const q = `${env.supaUrl}/rest/v1/seloger_places?ville=eq.${encodeURIComponent(ville.toLowerCase())}&select=code_classified&limit=1`;
@@ -144,49 +153,35 @@ async function placeCachePut(env: Env, ville: string, insee: string | null, code
   } catch { /* cache best-effort */ }
 }
 
-async function resolveClassifiedCode(env: Env, ville: string, insee: string | null): Promise<string | null> {
+// Resout le code lieu d'une ville : cache seloger_places d'abord (0 credit),
+// sinon scrape de la page SEO (1 credit) + mise en cache. La table se remplit
+// au fil de l'usage avec les villes reellement etudiees (pas de pre-sourcing).
+// Renvoie { code, credits } — credits = 1 si un scrape a eu lieu.
+async function resolveClassifiedCode(env: Env, ville: string, insee: string | null): Promise<{ code: string | null; credits: number }> {
   const cached = await placeCacheGet(env, ville);
   if (cached) {
-    console.log(`[annee] code lieu (cache) ${ville} -> ${cached}`);
-    return cached;
+    console.log(`[lieu] code (cache) ${ville} -> ${cached}`);
+    return { code: cached, credits: 0 };
   }
-  for (const ep of CLASSIFIED_AUTOCOMPLETE) {
-    try {
-      let text = "";
-      if (ep.via === "firecrawl") {
-        const d = await fcScrape(ep.url(ville), env.fcKey, ["markdown"], 2000);
-        text = typeof d.markdown === "string" ? d.markdown : JSON.stringify(d);
-      } else {
-        const r = await fetch(ep.url(ville), { headers: { "User-Agent": "Mozilla/5.0" } });
-        text = r.ok ? await r.text() : "";
-      }
-      const code = extractClassifiedCode(text);
-      if (code) {
-        console.log(`[annee] code lieu resolu ${ville} -> ${code}`);
-        await placeCachePut(env, ville, insee, code);
-        return code;
-      }
-    } catch (e) {
-      console.warn(`[annee] autocomplete echec :`, e instanceof Error ? e.message : e);
+  const dept = insee ? insee.slice(0, 2) : null;
+  if (!dept) return { code: null, credits: 0 };
+  try {
+    const url = seoLocationUrl(ville, dept);
+    console.log(`[lieu] resolution via page SEO : ${url}`);
+    const d = await fcScrape(url, env.fcKey, ["rawHtml"], 5000);
+    const html = typeof d.rawHtml === "string" ? d.rawHtml : "";
+    const code = extractCityCode(html);
+    if (code) {
+      console.log(`[lieu] code resolu ${ville} -> ${code}`);
+      await placeCachePut(env, ville, insee, code);
+      return { code, credits: 1 };
     }
+    console.warn(`[lieu] aucun code AD08FR dans la page SEO (${html.length} octets)`);
+    return { code: null, credits: 1 };
+  } catch (e) {
+    console.warn(`[lieu] resolution echec :`, e instanceof Error ? e.message : e);
+    return { code: null, credits: 1 };
   }
-  return null;
-}
-
-// --- Cache Supabase (< CACHE_DAYS jours, meme demande) ----------------------
-// deno-lint-ignore no-explicit-any
-async function fetchCache(env: Env, ville: string, quartier: string, transaction: Transaction): Promise<any[]> {
-  const since = new Date(Date.now() - CACHE_DAYS * 86400 * 1000).toISOString();
-  let q = `${env.supaUrl}/rest/v1/etudes_marche?source=eq.firecrawl` +
-    `&transaction=eq.${encodeURIComponent(transaction)}` +
-    `&ville=eq.${encodeURIComponent(ville)}` +
-    `&scraped_at=gt.${encodeURIComponent(since)}` +
-    `&select=*&order=scraped_at.desc`;
-  if (quartier) q += `&quartier=eq.${encodeURIComponent(quartier)}`;
-  const r = await fetch(q, { headers: { "apikey": env.serviceKey, "Authorization": `Bearer ${env.serviceKey}` } });
-  if (!r.ok) return [];
-  const rows = await r.json();
-  return Array.isArray(rows) ? rows : [];
 }
 
 // deno-lint-ignore no-explicit-any
@@ -248,23 +243,11 @@ function toInsertRow(a: any, transaction: Transaction, scrapedAt: string) {
   };
 }
 
-// ============================================================================
-// PHASE "start" : 1 scrape (page liste) -> annonces partielles
-// ============================================================================
-async function handleStart(body: ReqBody, env: Env): Promise<Response> {
-  const ville = (body.ville || "").trim();
-  const quartier = (body.quartier || "").trim();
-  const transaction: Transaction = body.transaction === "vente" ? "vente" : "location";
-  const maxItems = Math.min(Math.max(Math.round(num(body.maxItems) ?? 30), 1), 100);
-  const typoFilter = /^T[1-6]$/.test(String(body.typologie || "")) ? String(body.typologie) : null;
-  const neufOnly = body.neufOnly === true;
-  const anneeMin = num(body.anneeMin);
-  const forceRefresh = body.forceRefresh === true;
-  if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
-
-  // applyAnnee = false quand l'annee est deja filtree cote serveur (classified).
+// Filtres post-recuperation communs aux phases "start" et "page".
+// applyAnnee = false quand l'annee est deja filtree cote serveur (classified).
+function makeFilters(typoFilter: string | null, neufOnly: boolean, anneeMin: number | null) {
   // deno-lint-ignore no-explicit-any
-  const applyFilters = (arr: any[], applyAnnee = true) => {
+  return (arr: any[], applyAnnee = true) => {
     let out = arr;
     if (typoFilter) out = out.filter((r) => matchesTypologie(r.nb_pieces, typoFilter));
     if (neufOnly) out = out.filter((r) => matchesNeuf(r.titre));
@@ -274,52 +257,59 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
     }
     return out;
   };
+}
+
+// ============================================================================
+// PHASE "start" : resolution code lieu + 1 scrape (page 1).
+// Si d'autres pages sont necessaires (maxItems > recoltees), renvoie
+// done:false + le code lieu : le front enchaine phase "page" (2..4) puis
+// "finalize". Sinon : insertion + synthese directes (done:true).
+// PAS de cache de resultats : chaque etude relance un vrai scraping.
+// ============================================================================
+async function handleStart(body: ReqBody, env: Env): Promise<Response> {
+  const ville = (body.ville || "").trim();
+  const quartier = (body.quartier || "").trim();
+  const transaction: Transaction = body.transaction === "vente" ? "vente" : "location";
+  const maxItems = Math.min(Math.max(Math.round(num(body.maxItems) ?? 30), 1), 100);
+  const typoFilter = /^T[1-6]$/.test(String(body.typologie || "")) ? String(body.typologie) : null;
+  const neufOnly = body.neufOnly === true;
+  const anneeMin = num(body.anneeMin);
+  if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
+
+  const applyFilters = makeFilters(typoFilter, neufOnly, anneeMin);
   const filtres = { typologie: typoFilter, neufOnly, anneeMin, maxItems };
 
   const city = await resolveCity(ville);
   if (!city || !city.citycode) return json({ error: "ville introuvable" }, 404);
-  const seloCode = selogerCode(city.citycode);
-  if (!seloCode) return json({ error: "ville introuvable (code SeLoger non resolu)" }, 404);
-  console.log(`[start] INSEE ${city.citycode} -> SeLoger ${seloCode} (${city.nom})`);
+  console.log(`[start] ${city.nom} (INSEE ${city.citycode})`);
 
-  // Cache 7 jours
-  if (!forceRefresh) {
-    const cached = await fetchCache(env, city.nom, quartier, transaction);
-    if (cached.length) {
-      const lastTs = String(cached[0].scraped_at);
-      const lastBatch = applyFilters(cached.filter((r) => String(r.scraped_at) === lastTs));
-      if (lastBatch.length >= maxItems || lastBatch.length >= 15) {
-        console.log(`[start] CACHE HIT : ${lastBatch.length} annonces du ${lastTs}`);
-        const s = synthesize(lastBatch, transaction);
-        return json({
-          done: true, fromCache: true, creditsEstimes: 0, scrapedAt: lastTs,
-          ville: city.nom, quartier: quartier || null, transaction, seloCode, filtres,
-          annoncesRetenues: lastBatch.length, annonces: lastBatch.map(toAnnonce),
-          parTypologie: s.parTypologie, global: s.global,
-        });
-      }
-    }
-  }
+  // Code lieu classified-search : cache seloger_places, sinon 1 scrape SEO.
+  const resolved = await resolveClassifiedCode(env, city.nom, city.citycode);
+  let credits = resolved.credits;
+  const code = resolved.code;
 
-  // Choix de l'URL : classified-search (vrai filtre annee) si anneeMin fourni ET
-  // code lieu resolu ; sinon list.htm (+ post-filtre best-effort si anneeMin).
-  let searchUrl = buildListUrl(seloCode, transaction, 1);
+  let searchUrl: string;
   let anneeServerSide = false;
-  if (anneeMin) {
-    const code = await resolveClassifiedCode(env, city.nom, city.citycode);
-    if (code) {
-      searchUrl = buildClassifiedUrl(code, transaction, anneeMin);
-      anneeServerSide = true;
-      console.log(`[start] classified-search annee>=${anneeMin} : ${searchUrl}`);
-    } else {
-      console.warn(`[start] filtre annee best-effort (code lieu non resolu) -> list.htm + post-filtre`);
-    }
+  let note: string | null = null;
+  if (code) {
+    searchUrl = buildClassifiedUrl(code, transaction, anneeMin, 1);
+    anneeServerSide = !!anneeMin;
+  } else {
+    // Fallback list.htm : 1 page max (sa pagination renvoie ~80% de doublons,
+    // teste le 12/06/2026) + filtre annee best-effort sur les titres.
+    const seloCode = selogerCode(city.citycode);
+    if (!seloCode) return json({ error: "ville introuvable (code SeLoger non resolu)" }, 404);
+    searchUrl = buildListUrl(seloCode, transaction, 1);
+    note = anneeMin
+      ? "Code lieu SeLoger non résolu pour cette ville : filtre année approximatif (mots-clés) et 25 annonces max."
+      : "Code lieu SeLoger non résolu pour cette ville : 25 annonces max (pagination indisponible).";
+    console.warn(`[start] fallback list.htm (code lieu non resolu)`);
   }
 
-  // 1 scrape : page liste OU classified-search (meme parsing markdown)
   console.log(`[start] Firecrawl : ${searchUrl}`);
   const data = await fcScrape(searchUrl, env.fcKey, ["markdown", "links"], 6000);
-  const md = typeof data.markdown === "string" ? data.markdown : "";
+  credits += 1;
+  const md = cutProximity(typeof data.markdown === "string" ? data.markdown : "");
   const raw = parseAnnonces(md, data.links);
   console.log(`[start] ${raw.length} annonces brutes`);
 
@@ -328,29 +318,69 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   let rows: Row[] = raw.map((a) => annonceToRow(a, ctx)).filter((r): r is Row => r !== null && !!r.url);
   rows = applyFilters(rows, !anneeServerSide).slice(0, maxItems);
   const partielles = rows.map(toAnnonce);
-  console.log(`[start] ${partielles.length} annonces retenues`);
+  console.log(`[start] ${partielles.length} annonces retenues (page 1)`);
 
-  // Aucune annonce -> termine
-  if (partielles.length === 0) {
+  // D'autres pages sont-elles utiles ? (classified uniquement : la page 1 est
+  // pleine a ~PER_PAGE annonces ET le front en veut plus.)
+  const pagesPrevues = code ? Math.min(MAX_PAGES, Math.ceil(maxItems / PER_PAGE)) : 1;
+  const needMore = code !== null && pagesPrevues > 1 && partielles.length < maxItems && raw.length >= PER_PAGE - 10;
+  if (needMore) {
     return json({
-      done: true, fromCache: false, creditsEstimes: 1, scrapedAt,
-      ville: city.nom, quartier: quartier || null, transaction, seloCode, searchUrl, filtres,
-      annoncesRetenues: 0, annonces: [], parTypologie: {}, global: null,
-      message: "Aucune annonce exploitable (autre ville/transaction, retirez des filtres).",
+      done: false, fromCache: false, creditsEstimes: credits, scrapedAt,
+      ville: city.nom, quartier: quartier || null, codePostal: city.codePostal,
+      transaction, code, searchUrl, filtres, pagesPrevues,
+      annonces: partielles, note,
     });
   }
 
-  // Les charges reelles sont bloquees (DataDome) -> PAS de scrape detail. On
-  // finalise directement : insert + synthese ponderee (loyers CC). Les charges
-  // sont ESTIMEES cote front (ratio parametrable). 1 seul scrape (la liste).
+  // Termine en 1 page : insertion + synthese ponderee (loyers CC ; charges
+  // ESTIMEES cote front — le detail des charges reste bloque par DataDome).
+  if (partielles.length === 0) {
+    return json({
+      done: true, fromCache: false, creditsEstimes: credits, scrapedAt,
+      ville: city.nom, quartier: quartier || null, transaction, searchUrl, filtres,
+      annoncesRetenues: 0, annonces: [], parTypologie: {}, global: null, note,
+      message: "Aucune annonce exploitable (autre ville/transaction, retirez des filtres).",
+    });
+  }
   await insertRows(env, partielles.map((a) => toInsertRow(a, transaction, scrapedAt))).catch((e) => console.error("[start] insert:", e));
   const s = synthesize(partielles, transaction);
   return json({
-    done: true, fromCache: false, creditsEstimes: 1, scrapedAt,
-    ville: city.nom, quartier: quartier || null, transaction, seloCode, searchUrl, filtres,
-    annoncesRetenues: partielles.length, annonces: partielles,
+    done: true, fromCache: false, creditsEstimes: credits, scrapedAt,
+    ville: city.nom, quartier: quartier || null, transaction, searchUrl, filtres,
+    annoncesRetenues: partielles.length, annonces: partielles, note,
     parTypologie: s.parTypologie, global: s.global,
   });
+}
+
+// ============================================================================
+// PHASE "page" : 1 scrape (page N de classified-search) -> annonces brutes.
+// Pas d'insertion ici : le front dedoublonne et appelle "finalize".
+// ============================================================================
+async function handlePage(body: ReqBody, env: Env): Promise<Response> {
+  const code = String(body.code || "");
+  const page = Math.min(Math.max(Math.round(num(body.page) ?? 2), 2), MAX_PAGES);
+  const ville = (body.ville || "").trim();
+  const quartier = (body.quartier || "").trim();
+  const transaction: Transaction = body.transaction === "vente" ? "vente" : "location";
+  const typoFilter = /^T[1-6]$/.test(String(body.typologie || "")) ? String(body.typologie) : null;
+  const neufOnly = body.neufOnly === true;
+  const anneeMin = num(body.anneeMin);
+  if (!code || !ville) return json({ error: "code lieu et ville obligatoires" }, 400);
+
+  const searchUrl = buildClassifiedUrl(code, transaction, anneeMin, page);
+  console.log(`[page ${page}] Firecrawl : ${searchUrl}`);
+  const data = await fcScrape(searchUrl, env.fcKey, ["markdown", "links"], 6000);
+  const md = cutProximity(typeof data.markdown === "string" ? data.markdown : "");
+  const raw = parseAnnonces(md, data.links);
+
+  const scrapedAt = new Date().toISOString();
+  const ctx = { ville, quartier: quartier || null, code_postal: body.codePostal || null, transaction, scrapedAt };
+  let rows: Row[] = raw.map((a) => annonceToRow(a, ctx)).filter((r): r is Row => r !== null && !!r.url);
+  // annee deja filtree cote serveur (classified) -> applyAnnee=false
+  rows = makeFilters(typoFilter, neufOnly, anneeMin)(rows, false);
+  console.log(`[page ${page}] ${rows.length} annonces retenues`);
+  return json({ phase: "page", page, creditsEstimes: 1, annonces: rows.map(toAnnonce) });
 }
 
 // ============================================================================
@@ -397,7 +427,7 @@ async function handleFinalize(body: ReqBody, env: Env): Promise<Response> {
     ville: ville || null, quartier: quartier || null, transaction,
     annoncesRetenues: annonces.length, annonces: annonces.map(toAnnonce),
     parTypologie: s.parTypologie, global: s.global,
-    creditsEstimes: 1 + annonces.length,
+    creditsEstimes: num(body.credits) ?? 0, // comptes par le front (1/page + resolution)
   });
 }
 
@@ -421,6 +451,7 @@ Deno.serve(async (req: Request) => {
   const env: Env = { fcKey, supaUrl, serviceKey };
 
   try {
+    if (body.phase === "page") return await handlePage(body, env);
     if (body.phase === "detail") return await handleDetail(body, env);
     if (body.phase === "finalize") return await handleFinalize(body, env);
     return await handleStart(body, env);
