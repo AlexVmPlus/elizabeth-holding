@@ -35,7 +35,8 @@ import {
   isPlausible,
   isPlausibleNeuf,
   matchesAnnee,
-  matchesTypologie,
+  matchesTypologies,
+  parseTypologies,
   neufListUrl,
   neufProgramLinks,
   num,
@@ -283,11 +284,11 @@ function toInsertRow(a: any, transaction: Transaction, scrapedAt: string) {
 // Filtres post-recuperation communs aux phases "start" et "page" :
 // exclusions systematiques (colocations, surfaces/prix aberrants) puis filtres
 // utilisateur. applyAnnee = false quand l'annee est deja filtree cote serveur.
-function makeFilters(typoFilter: string | null, anneeMin: number | null, transaction: Transaction) {
+function makeFilters(typoFilter: string[] | null, anneeMin: number | null, transaction: Transaction) {
   // deno-lint-ignore no-explicit-any
   return (arr: any[], applyAnnee = true) => {
     let out = arr.filter((r) => !isColocation(r.titre, r.url) && isPlausible(r.surface, r.prix_m2_cc, transaction));
-    if (typoFilter) out = out.filter((r) => matchesTypologie(r.nb_pieces, typoFilter));
+    if (typoFilter) out = out.filter((r) => matchesTypologies(r.nb_pieces, typoFilter));
     if (anneeMin && applyAnnee) {
       const f = out.filter((r) => matchesAnnee(r.titre, anneeMin));
       out = f.length ? f : out; // best-effort : ne vide jamais tout
@@ -307,7 +308,7 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   const ville = (body.ville || "").trim();
   const quartier = (body.quartier || "").trim();
   const transaction: Transaction = body.transaction === "vente" ? "vente" : "location";
-  const typoFilter = /^T[1-6]$/.test(String(body.typologie || "")) ? String(body.typologie) : null;
+  const typoFilter = parseTypologies(body.typologie);
   const anneeMin = num(body.anneeMin);
   if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
 
@@ -403,7 +404,7 @@ async function handlePage(body: ReqBody, env: Env): Promise<Response> {
   const ville = (body.ville || "").trim();
   const quartier = (body.quartier || "").trim();
   const transaction: Transaction = body.transaction === "vente" ? "vente" : "location";
-  const typoFilter = /^T[1-6]$/.test(String(body.typologie || "")) ? String(body.typologie) : null;
+  const typoFilter = parseTypologies(body.typologie);
   const anneeMin = num(body.anneeMin);
   if (!code || !ville) return json({ error: "code lieu et ville obligatoires" }, 400);
 
@@ -457,7 +458,7 @@ function neufUnitToRow(u: any, meta: any, ctx: { ville: string; quartier: string
 async function handleStartNeuf(body: ReqBody, env: Env): Promise<Response> {
   const ville = (body.ville || "").trim();
   const quartier = (body.quartier || "").trim();
-  const typoFilter = /^T[1-6]$/.test(String(body.typologie || "")) ? String(body.typologie) : null;
+  const typoFilter = parseTypologies(body.typologie);
   if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
   const city = await resolveCityOrArr(ville);
   if (!city || !city.citycode) return json({ error: "ville introuvable" }, 404);
@@ -509,7 +510,7 @@ async function handleStartNeuf(body: ReqBody, env: Env): Promise<Response> {
   const toScrape = target.filter((u) => !byUrl.has(u));
   const cachedAnnonces = cachedUrls
     .flatMap((u) => byUrl.get(u)!)
-    .filter((r) => matchesTypologie(r.nb_pieces, typoFilter))
+    .filter((r) => matchesTypologies(r.nb_pieces, typoFilter))
     // deno-lint-ignore no-explicit-any
     .map((r: any) => ({
       ville: r.ville, quartier: r.quartier, code_postal: r.code_postal, transaction: "vente_neuf",
@@ -550,14 +551,14 @@ async function handleNeufDetail(body: ReqBody, env: Env): Promise<Response> {
   const ville = (body.ville || "").trim();
   const quartier = (body.quartier || "").trim();
   if (!url || !ville) return json({ error: "url et ville obligatoires" }, 400);
-  const typoFilter = /^T[1-6]$/.test(String(body.typologie || "")) ? String(body.typologie) : null;
+  const typoFilter = parseTypologies(body.typologie);
   try {
     const data = await fcScrape(url, env.fcKey, ["markdown"], 6000);
     const md = typeof data.markdown === "string" ? data.markdown : "";
     const meta = parseNeufMeta(md);
     const units = parseNeufUnits(md)
       .filter((u) => isPlausibleNeuf(u.prix_m2))
-      .filter((u) => matchesTypologie(u.pieces, typoFilter));
+      .filter((u) => matchesTypologies(u.pieces, typoFilter));
     const scrapedAt = new Date().toISOString();
     const ctx = { ville, quartier: quartier || null, codePostal: body.codePostal || null, url, scrapedAt };
     const rows = units.map((u) => neufUnitToRow(u, meta, ctx));

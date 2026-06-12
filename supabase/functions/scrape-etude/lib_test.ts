@@ -25,6 +25,8 @@ import {
   isPlausibleNeuf,
   matchesNeuf,
   matchesTypologie,
+  matchesTypologies,
+  parseTypologies,
   mergeCharges,
   parseAnnonces,
   parseMeuble,
@@ -509,4 +511,16 @@ Deno.test("parseAnnonces : meuble extrait du bloc", () => {
   const a = parseAnnonces(md, []);
   assertEquals(a[0].meuble, true);
   assertEquals(a[1].meuble, false);
+});
+
+Deno.test("parseTypologies / matchesTypologies : choix multiple", () => {
+  assertEquals(parseTypologies("T1,T3,T4"), ["T1", "T3", "T4"]);
+  assertEquals(parseTypologies("t2, t3"), ["T2", "T3"]);
+  assertEquals(parseTypologies("T2"), ["T2"]);
+  assertEquals(parseTypologies(""), null);
+  assertEquals(parseTypologies("xyz"), null);
+  assertEquals(matchesTypologies(1, ["T1", "T3"]), true);
+  assertEquals(matchesTypologies(2, ["T1", "T3"]), false);
+  assertEquals(matchesTypologies(3, ["T1", "T3"]), true);
+  assertEquals(matchesTypologies(2, null), true); // pas de filtre
 });

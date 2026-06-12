@@ -592,6 +592,21 @@ export function matchesTypologie(pieces: number | null, typo: string | null | un
   return typologie(pieces) === typo;
 }
 
+// Choix MULTIPLE de typologies : "T1,T3,T4" (CSV). Vide/null = toutes.
+// Normalise la saisie et ignore les valeurs invalides ; renvoie null si rien
+// d'exploitable (= pas de filtre).
+export function parseTypologies(input: string | null | undefined): string[] | null {
+  if (!input) return null;
+  const list = String(input).toUpperCase().split(/[\s,;+]+/).filter((t) => /^T[1-6]$/.test(t));
+  return list.length ? [...new Set(list)] : null;
+}
+
+export function matchesTypologies(pieces: number | null, typos: string[] | null): boolean {
+  if (!typos || !typos.length) return true;
+  const t = typologie(pieces);
+  return t !== null && typos.includes(t);
+}
+
 // Neuf : best-effort sur le titre (la liste n'expose pas toujours l'info).
 export function matchesNeuf(titre: string | null | undefined): boolean {
   return /(neuf|neuve|r[ée]cent)/i.test(titre || "");
