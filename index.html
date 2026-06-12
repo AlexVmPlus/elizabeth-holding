@@ -152,8 +152,8 @@ tr.ea-rowlink{cursor:pointer}tr.ea-rowlink:hover td{background:var(--bsoft)}.ea-
 <div class="st"><div class="k">Notre méthode</div><h2>Des prix issus de vrais programmes</h2><p>Chaque chiffre provient des programmes immobiliers neufs reçus, géolocalisés à l'adresse et agrégés par ville et quartier.</p></div>
 <div class="fg">
 <div class="ft"><div class="ic">&#127970;</div><h3>Vente &amp; location au m2</h3><p>Prix de vente et loyers moyens par ville et quartier, dans le neuf.</p></div>
-<div class="ft"><div class="ic">&#128205;</div><h3>Geolocalise a l'adresse</h3><p>Chaque programme est place precisement via son adresse, puis regroupe par secteur.</p></div>
-<div class="ft"><div class="ic">&#128202;</div><h3>Comparaison nationale</h3><p>Chaque prix est positionne par rapport a la moyenne de l'ensemble des programmes.</p></div>
+<div class="ft"><div class="ic">&#128205;</div><h3>Géolocalisé à l'adresse</h3><p>Chaque programme est placé précisément via son adresse, puis regroupé par secteur.</p></div>
+<div class="ft"><div class="ic">&#128202;</div><h3>Comparaison nationale</h3><p>Chaque prix est positionné par rapport à la moyenne de l'ensemble des programmes.</p></div>
 </div></div></section>
 </div>
 
@@ -161,7 +161,7 @@ tr.ea-rowlink{cursor:pointer}tr.ea-rowlink:hover td{background:var(--bsoft)}.ea-
 <div class="st" style="text-align:left"><div class="k">Études de marché</div><h2 style="margin-top:6px">Alimentez la base de données</h2><p style="margin-left:0">Deux méthodes : saisie manuelle (disponible) et scraping automatisé (à brancher). Les données ajoutées apparaissent sur la carte.</p></div>
 <div class="mg">
 <div class="meth"><span class="pill rd">Disponible</span><h3>&#9997;&#65039; Saisie manuelle</h3><p>Ajoutez un programme releve sur le terrain.</p></div>
-<div class="meth lk"><span class="pill sn">A brancher</span><h3>&#129302; Scraping automatise</h3><p>Emplacement préparé pour un outil payant qui remplira la carte automatiquement.</p>
+<div class="meth lk"><span class="pill sn">A brancher</span><h3>&#129302; Scraping automatisé</h3><p>Emplacement préparé pour un outil payant qui remplira la carte automatiquement.</p>
 <div class="fld"><label>Clé / endpoint</label><input type="text" placeholder="https://api.votre-outil.com/... (a configurer)" disabled></div>
 <button class="btn bg2" style="width:100%" disabled>Lancer une collecte (bientôt)</button></div>
 </div>
@@ -184,7 +184,7 @@ tr.ea-rowlink{cursor:pointer}tr.ea-rowlink:hover td{background:var(--bsoft)}.ea-
 <div class="g2"><div class="fld"><label>Année de construction min</label><input id="ea-annee" type="number" min="1900" max="2030" placeholder="ex. 2020 (neuf/recent)"><span class="hint" style="display:block;margin-top:4px">Filtre les programmes récents (&ge; cette année)</span></div>
 <div class="fld"><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;margin-top:24px"><input type="checkbox" id="ea-neuf" style="accent-color:var(--blue);width:16px;height:16px;margin:0">Neuf uniquement</label><span class="hint" style="display:block;margin-top:4px">Logements neufs (selon SeLoger)</span></div></div>
 <button id="ea-run" class="btn bp" style="width:100%;margin-top:8px">Lancer l'étude</button>
-<p class="hint" style="margin:14px 0 0">&#128274; Le lancement est protege par mot de passe (consommation de credit). La consultation du site reste libre.</p>
+<p class="hint" style="margin:14px 0 0">&#128274; Le lancement est protégé par mot de passe (consommation de crédit). La consultation du site reste libre.</p>
 </div>
 <div id="ea-result" style="margin-top:24px"></div>
 </div></section></div>
@@ -330,9 +330,9 @@ if(la==null||lo==null){var vv=DB.villes.find(function(x){return x.ville.toLowerC
 if(pv==null&&l==null){toast("Indiquez au moins un prix");return}
 var row={ville:v,quartier:q,adresse:document.getElementById("fadr").value.trim()||null,code_postal:fCP||null,lat:la,lng:lo,prix_vente_m2:pv,loyer_m2:l,promoteur:editMeta?editMeta.pr:"Saisie manuelle",programme:editMeta?editMeta.prog:""};
 var isEdit=editId!=null,curId=editId;
-requireAuth(function(){sb.disabled=true;sb.textContent=isEdit?"Mise a jour...":"Enregistrement...";
+requireAuth(function(){sb.disabled=true;sb.textContent=isEdit?"Mise à jour...":"Enregistrement...";
 var op=isEdit?SB.from("programmes").update(row).eq("id",curId):SB.from("programmes").insert(row);
-op.then(function(res){if(res.error)throw res.error;toast(isEdit?"Programme modifié sur la carte":"Programme ajouté à la carte");resetForm();return loadData()}).catch(function(err){console.error("save error",err);toast("Erreur : "+((err&&err.message)||"echec enregistrement"));if(sb){sb.disabled=false;sb.textContent=isEdit?"Mettre à jour ce programme":"Enregistrer et ajouter à la carte"}})})};
+op.then(function(res){if(res.error)throw res.error;toast(isEdit?"Programme modifié sur la carte":"Programme ajouté à la carte");resetForm();return loadData()}).catch(function(err){console.error("save error",err);toast("Erreur : "+((err&&err.message)||"échec enregistrement"));if(sb){sb.disabled=false;sb.textContent=isEdit?"Mettre à jour ce programme":"Enregistrer et ajouter à la carte"}})})};
 
 function loadEdit(id){var p=DB.programmes.find(function(x){return x.id===id});if(!p)return;
 document.getElementById("fv").value=p.v||"";document.getElementById("fq").value=p.q||"";document.getElementById("fadr").value=p.adr||"";
@@ -356,7 +356,7 @@ var EA_KEY="sb_publishable_X0-vzzI4TjUyK2UBboENqw_iH1GT6Rw";
 var eaRun=document.getElementById("ea-run"),eaResult=document.getElementById("ea-result");
 function eaEsc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]})}
 function eaVal(id){var el=document.getElementById(id);if(!el)return null;var s=(el.value||"").trim();if(s==="")return null;var n=parseFloat(s);return isNaN(n)?null:n}
-function eaDate(iso){try{var d=new Date(iso);return d.toLocaleDateString("fr-FR")+" a "+d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}catch(e){return eaEsc(iso)}}
+function eaDate(iso){try{var d=new Date(iso);return d.toLocaleDateString("fr-FR")+" à "+d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}catch(e){return eaEsc(iso)}}
 /* loyer/m2 (location) en 1 decimale ; prix/m2 (vente) en entier ; null -> n/d */
 function eaPrix(x,tr){if(x==null)return '<span style="color:var(--soft)">n/d</span>';return (tr=="vente"?euro(x):e1(x))+" &euro;"}
 function eaError(msg){return '<div class="card" style="padding:28px"><div style="font-size:30px">&#9888;&#65039;</div><h3 style="margin:8px 0 4px">Étude impossible</h3><p style="color:var(--soft)">'+eaEsc(msg)+'</p><p style="color:var(--soft);font-size:14px;margin-top:8px">Réessayez dans un instant, ou avec une autre ville / transaction.</p></div>'}
@@ -433,7 +433,7 @@ if(!nb||!j.annonces||!j.annonces.length){return '<div class="card" style="paddin
 var tr=j.transaction=="vente"?"Vente":"Location",vente=j.transaction=="vente";
 var head='<div class="eahead"><div class="k">Pré-fiche &middot; annonces sourcées</div><h2>'+eaEsc(j.ville)+(j.quartier?' &middot; '+eaEsc(j.quartier):'')+'</h2><div class="s">'+tr+' &middot; '+nb+' annonce'+(nb>1?'s':'')+' sourcée'+(nb>1?'s':'')+' &middot; '+eaDate(j.scrapedAt)+'</div></div>';
 var nd='<span style="color:var(--soft)">n/d</span>';
-var body=j.annonces.map(function(a){var url=a.url||a.lien||a.link||a.permalink||"";var u=url?eaEsc(url):"";
+var body=j.annonces.map(function(a){var url=(a.url||a.lien||a.link||a.permalink||"").trim().split(/\s/)[0].replace(/["')\]]+$/,"");var u=url?eaEsc(url):"";
 var prixAff=a.loyer_cc!=null?euro(a.loyer_cc)+" &euro;":(a.prix_m2_cc!=null&&a.surface?euro(Math.round(a.prix_m2_cc*a.surface))+" &euro;":"-");
 return '<tr'+(u?' class="ea-rowlink" data-url="'+u+'"':'')+'><td><b>'+eaEsc(a.typologie||"-")+'</b><div style="color:var(--soft);font-size:12px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+eaEsc(a.titre||"")+'</div></td>'+
 '<td>'+(a.surface!=null?e1(a.surface)+" m&sup2;":"-")+'</td>'+
@@ -449,16 +449,16 @@ var cP=vente?"Prix":"Loyer CC",cC=vente?"&mdash;":"Charges",cH=vente?"&mdash;":"
 var table='<div class="dl" style="margin-top:0;padding:0 18px 14px"><div style="max-height:540px;overflow:auto;border:1px solid var(--line);border-radius:12px"><table><thead><tr><th>Type</th><th>Surface</th><th>'+cP+'</th><th>'+cC+'</th><th>'+cH+'</th><th>'+(vente?"Prix/m&sup2;":"Loyer/m&sup2; CC")+'</th><th>'+(vente?"&mdash;":"Loyer/m&sup2; HC")+'</th><th>DPE</th><th>Quartier</th><th></th></tr></thead><tbody>'+body+'</tbody></table></div></div>';
 var notes=[];if(j.filtres){var f=j.filtres;
 if(f.typologie)notes.push("typologie "+f.typologie);
-if(f.anneeMin)notes.push("annee &ge; "+f.anneeMin);
+if(f.anneeMin)notes.push("année &ge; "+f.anneeMin);
 if(f.neufOnly)notes.push("neuf uniquement");}
 var filtreLine=notes.length?'<div style="padding:0 24px 6px;color:var(--soft);font-size:13px">Filtres : '+notes.join(" &middot; ")+'</div>':'';
 var foot='<div style="padding:6px 24px 18px;color:var(--soft);font-size:13px">Source : SeLoger &middot; vue de vérification brute (chaque ligne ouvre l\'annonce). '+(j.inserted!=null?j.inserted+' annonce'+(j.inserted>1?'s':'')+' enregistrée'+(j.inserted>1?'s':'')+' en base.':'')+'</div>';
 return '<div class="card" id="ea-prefiche">'+head+filtreLine+table+foot+'</div>'}
 /* banniere de progression / succes au-dessus de la pre-fiche */
-function eaProgress(text,credits){return '<div class="card" id="ea-banner" style="padding:16px 22px;display:flex;align-items:center;gap:14px;margin-bottom:16px"><div class="spinner" style="width:26px;height:26px;border-width:3px;margin:0"></div><div><b>'+eaEsc(text)+'</b>'+(credits!=null?'<div style="color:var(--soft);font-size:13px;margin-top:2px">&#8776; '+credits+' credits Firecrawl</div>':'')+'</div></div>'}
-function eaDone(text,credits,fromCache){return '<div class="card" id="ea-banner" style="padding:14px 22px;margin-bottom:16px;border-left:4px solid var(--teal)"><b>&#10003; '+eaEsc(text)+'</b><span style="color:var(--soft);font-size:13px;margin-left:8px">'+(fromCache?'depuis le cache (0 credit)':(credits!=null?'&#8776; '+credits+' credits Firecrawl':''))+'</span></div>'}
+function eaProgress(text,credits){return '<div class="card" id="ea-banner" style="padding:16px 22px;display:flex;align-items:center;gap:14px;margin-bottom:16px"><div class="spinner" style="width:26px;height:26px;border-width:3px;margin:0"></div><div><b>'+eaEsc(text)+'</b>'+(credits!=null?'<div style="color:var(--soft);font-size:13px;margin-top:2px">&#8776; '+credits+' crédits Firecrawl</div>':'')+'</div></div>'}
+function eaDone(text,credits,fromCache){return '<div class="card" id="ea-banner" style="padding:14px 22px;margin-bottom:16px;border-left:4px solid var(--teal)"><b>&#10003; '+eaEsc(text)+'</b><span style="color:var(--soft);font-size:13px;margin-left:8px">'+(fromCache?'depuis le cache (0 crédit)':(credits!=null?'&#8776; '+credits+' crédits Firecrawl':''))+'</span></div>'}
 /* appel API (start ou poll) -> json, throw si erreur */
-function eaApi(body){return fetch(EA_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+EA_KEY},body:JSON.stringify(body)}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error((j&&(j.error||j.detail))||("HTTP "+r.status));return j},function(){throw new Error("Reponse invalide (HTTP "+r.status+")")})})}
+function eaApi(body){return fetch(EA_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+EA_KEY},body:JSON.stringify(body)}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error((j&&(j.error||j.detail))||("HTTP "+r.status));return j},function(){throw new Error("Réponse invalide (HTTP "+r.status+")")})})}
 /* cable le clic sur les lignes de la pre-fiche (ouvre l'annonce) */
 function eaWireRows(){[].forEach.call(eaResult.querySelectorAll("tr.ea-rowlink"),function(tr){tr.onclick=function(e){if(e.target.closest("a"))return;var u=tr.getAttribute("data-url");if(u)window.open(u,"_blank","noopener")}})}
 /* resultat du scrape : banniere + pre-fiche + bouton "Générer la fiche complète" */

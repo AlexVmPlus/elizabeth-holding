@@ -1,0 +1,175 @@
+-- ============================================================================
+-- Enrichissement INSEE de public.insee_communes (genere automatiquement).
+-- Sources : Base comparateur de territoires (INSEE 2521169) + Logement 2022
+--           (INSEE 8581474). Filtre sur nos 157 communes. Grandes villes d'abord.
+-- A coller dans Supabase -> SQL Editor. N'ecrase PAS la colonne population.
+-- ============================================================================
+-- Communes ajoutees (absentes du seed initial) :
+insert into public.insee_communes (insee, ville, population) values ('33063','Bordeaux',265328) on conflict (insee) do nothing;
+
+update public.insee_communes set pct_proprietaires=33.4, pct_locataires=61.9, revenu_median=33650, pct_logements_recents=3.4, evolution_pop=-0.6 where insee='75056';
+update public.insee_communes set pct_proprietaires=43.0, pct_locataires=54.7, revenu_median=22860, pct_logements_recents=13.1, evolution_pop=0.3 where insee='13055';
+update public.insee_communes set pct_proprietaires=33.7, pct_locataires=64.1, revenu_median=28290, pct_logements_recents=12.8, evolution_pop=0.2 where insee='69123';
+update public.insee_communes set pct_proprietaires=32.2, pct_locataires=65.8, revenu_median=24500, pct_logements_recents=18.4, evolution_pop=1.2 where insee='31555';
+update public.insee_communes set pct_proprietaires=47.3, pct_locataires=49.7, revenu_median=24080, pct_logements_recents=6.8, evolution_pop=0.5 where insee='06088';
+update public.insee_communes set pct_proprietaires=36.2, pct_locataires=62.3, revenu_median=26720, pct_logements_recents=18.7, evolution_pop=1.0 where insee='44109';
+update public.insee_communes set pct_proprietaires=26.8, pct_locataires=70.8, revenu_median=21980, pct_logements_recents=14.6, evolution_pop=0.7 where insee='67482';
+update public.insee_communes set pct_proprietaires=32.7, pct_locataires=65.4, revenu_median=27590, pct_logements_recents=14.0, evolution_pop=0.9 where insee='33063';
+update public.insee_communes set pct_proprietaires=39.1, pct_locataires=59.6, revenu_median=22480, pct_logements_recents=7.9, evolution_pop=-0.4 where insee='76351';
+update public.insee_communes set pct_proprietaires=39.3, pct_locataires=58.2, revenu_median=25140, pct_logements_recents=11.6, evolution_pop=0.5 where insee='21231';
+update public.insee_communes set pct_proprietaires=40.4, pct_locataires=57.4, revenu_median=20830, pct_logements_recents=11.7, evolution_pop=-0.1 where insee='30189';
+update public.insee_communes set pct_proprietaires=23.6, pct_locataires=74.3, revenu_median=18330, pct_logements_recents=20.2, evolution_pop=0.9 where insee='93066';
+update public.insee_communes set pct_proprietaires=32.1, pct_locataires=66.2, revenu_median=23390, pct_logements_recents=13.5, evolution_pop=0.3 where insee='37261';
+update public.insee_communes set pct_proprietaires=49.3, pct_locataires=48.7, revenu_median=29760, pct_logements_recents=20.3, evolution_pop=0.6 where insee='74010';
+update public.insee_communes set pct_proprietaires=33.6, pct_locataires=64.3, revenu_median=23070, pct_logements_recents=9.1, evolution_pop=0.5 where insee='57463';
+update public.insee_communes set pct_proprietaires=43.8, pct_locataires=52.6, revenu_median=40000, pct_logements_recents=11.6, evolution_pop=0.1 where insee='92012';
+update public.insee_communes set pct_proprietaires=29.8, pct_locataires=68.2, revenu_median=23650, pct_logements_recents=12.8, evolution_pop=0.5 where insee='14118';
+update public.insee_communes set pct_proprietaires=44.1, pct_locataires=54.1, revenu_median=21300, pct_logements_recents=13.5, evolution_pop=-0.5 where insee='95018';
+update public.insee_communes set pct_proprietaires=33.3, pct_locataires=64.9, revenu_median=18680, pct_logements_recents=7.3, evolution_pop=-0.6 where insee='68224';
+update public.insee_communes set pct_proprietaires=27.8, pct_locataires=69.2, revenu_median=24020, pct_logements_recents=17.3, evolution_pop=0.7 where insee='92050';
+update public.insee_communes set pct_proprietaires=35.4, pct_locataires=62.4, revenu_median=21660, pct_logements_recents=16.1, evolution_pop=0.4 where insee='94081';
+update public.insee_communes set pct_proprietaires=33.5, pct_locataires=64.4, revenu_median=23720, pct_logements_recents=12.1, evolution_pop=0.6 where insee='94028';
+update public.insee_communes set pct_proprietaires=36.1, pct_locataires=62.2, revenu_median=19500, pct_logements_recents=10.5, evolution_pop=-0.1 where insee='84007';
+update public.insee_communes set pct_proprietaires=41.7, pct_locataires=56.5, revenu_median=32300, pct_logements_recents=11.7, evolution_pop=1.0 where insee='92004';
+update public.insee_communes set pct_proprietaires=44.7, pct_locataires=53.4, revenu_median=28370, pct_logements_recents=10.4, evolution_pop=1.0 where insee='92025';
+update public.insee_communes set pct_proprietaires=20.8, pct_locataires=77.7, revenu_median=17210, pct_logements_recents=23.0, evolution_pop=0.7 where insee='93001';
+update public.insee_communes set pct_proprietaires=45.2, pct_locataires=53.8, revenu_median=22790, pct_logements_recents=7.3, evolution_pop=-0.2 where insee='59183';
+update public.insee_communes set pct_proprietaires=45.2, pct_locataires=53.2, revenu_median=20930, pct_logements_recents=12.5, evolution_pop=0.3 where insee='93005';
+update public.insee_communes set pct_proprietaires=43.1, pct_locataires=50.6, revenu_median=38530, pct_logements_recents=4.5, evolution_pop=-0.3 where insee='78646';
+update public.insee_communes set pct_proprietaires=42.5, pct_locataires=55.0, revenu_median=36140, pct_logements_recents=4.9, evolution_pop=0.0 where insee='92026';
+update public.insee_communes set pct_proprietaires=51.4, pct_locataires=46.7, revenu_median=37730, pct_logements_recents=7.9, evolution_pop=0.6 where insee='92063';
+update public.insee_communes set pct_proprietaires=43.8, pct_locataires=54.6, revenu_median=23830, pct_logements_recents=9.1, evolution_pop=0.2 where insee='94017';
+update public.insee_communes set pct_proprietaires=46.5, pct_locataires=51.0, revenu_median=27750, pct_logements_recents=20.8, evolution_pop=1.6 where insee='33281';
+update public.insee_communes set pct_proprietaires=55.3, pct_locataires=41.6, revenu_median=27560, pct_logements_recents=12.5, evolution_pop=0.6 where insee='06004';
+update public.insee_communes set pct_proprietaires=61.8, pct_locataires=35.8, revenu_median=37390, pct_logements_recents=4.4, evolution_pop=0.2 where insee='94068';
+update public.insee_communes set pct_proprietaires=47.3, pct_locataires=49.5, revenu_median=24000, pct_logements_recents=7.0, evolution_pop=-0.0 where insee='06029';
+update public.insee_communes set pct_proprietaires=48.3, pct_locataires=50.3, revenu_median=24750, pct_logements_recents=19.3, evolution_pop=0.8 where insee='44184';
+update public.insee_communes set pct_proprietaires=49.8, pct_locataires=48.5, revenu_median=26370, pct_logements_recents=17.8, evolution_pop=1.2 where insee='93051';
+update public.insee_communes set pct_proprietaires=38.1, pct_locataires=59.3, revenu_median=39630, pct_logements_recents=11.3, evolution_pop=1.3 where insee='92044';
+update public.insee_communes set pct_proprietaires=41.5, pct_locataires=55.1, revenu_median=37740, pct_logements_recents=18.7, evolution_pop=-0.2 where insee='92040';
+update public.insee_communes set pct_proprietaires=27.8, pct_locataires=70.4, revenu_median=26070, pct_logements_recents=11.2, evolution_pop=1.3 where insee='92024';
+update public.insee_communes set pct_proprietaires=26.9, pct_locataires=70.4, revenu_median=22210, pct_logements_recents=17.1, evolution_pop=1.0 where insee='94041';
+update public.insee_communes set pct_proprietaires=57.1, pct_locataires=40.7, revenu_median=36480, pct_logements_recents=15.8, evolution_pop=0.5 where insee='92002';
+update public.insee_communes set pct_proprietaires=53.3, pct_locataires=45.0, revenu_median=23890, pct_logements_recents=17.0, evolution_pop=-0.4 where insee='83126';
+update public.insee_communes set pct_proprietaires=39.0, pct_locataires=58.3, revenu_median=19630, pct_logements_recents=12.5, evolution_pop=1.1 where insee='93007';
+update public.insee_communes set pct_proprietaires=52.0, pct_locataires=42.4, revenu_median=56030, pct_logements_recents=1.5, evolution_pop=-0.4 where insee='92051';
+update public.insee_communes set pct_proprietaires=34.5, pct_locataires=62.7, revenu_median=24470, pct_logements_recents=14.0, evolution_pop=0.8 where insee='94076';
+update public.insee_communes set pct_proprietaires=42.6, pct_locataires=51.9, revenu_median=31480, pct_logements_recents=9.3, evolution_pop=0.6 where insee='94046';
+update public.insee_communes set pct_proprietaires=49.7, pct_locataires=48.2, revenu_median=34400, pct_logements_recents=10.8, evolution_pop=1.3 where insee='92023';
+update public.insee_communes set pct_proprietaires=25.9, pct_locataires=72.6, revenu_median=18050, pct_logements_recents=19.2, evolution_pop=0.9 where insee='93008';
+update public.insee_communes set pct_proprietaires=34.5, pct_locataires=64.2, revenu_median=19650, pct_logements_recents=14.1, evolution_pop=-0.6 where insee='93031';
+update public.insee_communes set pct_proprietaires=25.7, pct_locataires=72.8, revenu_median=23670, pct_logements_recents=23.7, evolution_pop=1.1 where insee='93070';
+update public.insee_communes set pct_proprietaires=49.3, pct_locataires=48.7, revenu_median=29690, pct_logements_recents=4.4, evolution_pop=-0.2 where insee='94033';
+update public.insee_communes set pct_proprietaires=44.0, pct_locataires=54.8, revenu_median=19450, pct_logements_recents=8.7, evolution_pop=0.3 where insee='93071';
+update public.insee_communes set pct_proprietaires=57.7, pct_locataires=41.0, revenu_median=29080, pct_logements_recents=11.1, evolution_pop=-0.3 where insee='78586';
+update public.insee_communes set pct_proprietaires=39.0, pct_locataires=59.6, revenu_median=19420, pct_logements_recents=14.1, evolution_pop=-0.7 where insee='93010';
+update public.insee_communes set pct_proprietaires=23.3, pct_locataires=75.2, revenu_median=20160, pct_logements_recents=23.4, evolution_pop=1.5 where insee='92036';
+update public.insee_communes set pct_proprietaires=40.2, pct_locataires=58.6, revenu_median=27350, pct_logements_recents=29.1, evolution_pop=0.2 where insee='91377';
+update public.insee_communes set pct_proprietaires=37.1, pct_locataires=60.6, revenu_median=36950, pct_logements_recents=13.3, evolution_pop=0.1 where insee='92073';
+update public.insee_communes set pct_proprietaires=49.2, pct_locataires=47.4, revenu_median=40120, pct_logements_recents=4.0, evolution_pop=-0.5 where insee='94080';
+update public.insee_communes set pct_proprietaires=52.3, pct_locataires=45.9, revenu_median=34880, pct_logements_recents=6.2, evolution_pop=0.5 where insee='92048';
+update public.insee_communes set pct_proprietaires=42.0, pct_locataires=55.1, revenu_median=34480, pct_logements_recents=8.9, evolution_pop=-1.0 where insee='92049';
+update public.insee_communes set pct_proprietaires=36.7, pct_locataires=61.4, revenu_median=23350, pct_logements_recents=22.8, evolution_pop=0.6 where insee='94022';
+update public.insee_communes set pct_proprietaires=30.7, pct_locataires=67.0, revenu_median=25220, pct_logements_recents=18.2, evolution_pop=0.6 where insee='94002';
+update public.insee_communes set pct_proprietaires=47.5, pct_locataires=47.7, revenu_median=37970, pct_logements_recents=6.3, evolution_pop=0.5 where insee='78551';
+update public.insee_communes set pct_proprietaires=30.9, pct_locataires=67.4, revenu_median=19370, pct_logements_recents=14.3, evolution_pop=0.1 where insee='78361';
+update public.insee_communes set pct_proprietaires=39.3, pct_locataires=58.6, revenu_median=35160, pct_logements_recents=9.0, evolution_pop=-0.2 where insee='92062';
+update public.insee_communes set pct_proprietaires=51.0, pct_locataires=47.3, revenu_median=25480, pct_logements_recents=20.1, evolution_pop=0.4 where insee='13047';
+update public.insee_communes set pct_proprietaires=27.3, pct_locataires=69.0, revenu_median=21310, pct_logements_recents=12.6, evolution_pop=1.4 where insee='77288';
+update public.insee_communes set pct_proprietaires=22.9, pct_locataires=75.5, revenu_median=23620, pct_logements_recents=11.8, evolution_pop=1.6 where insee='92007';
+update public.insee_communes set pct_proprietaires=30.6, pct_locataires=67.4, revenu_median=21660, pct_logements_recents=14.9, evolution_pop=2.6 where insee='93006';
+update public.insee_communes set pct_proprietaires=41.9, pct_locataires=56.5, revenu_median=27030, pct_logements_recents=11.9, evolution_pop=1.6 where insee='78498';
+update public.insee_communes set pct_proprietaires=39.6, pct_locataires=58.7, revenu_median=23160, pct_logements_recents=15.0, evolution_pop=1.9 where insee='93050';
+update public.insee_communes set pct_proprietaires=49.6, pct_locataires=48.5, revenu_median=34590, pct_logements_recents=14.6, evolution_pop=-0.3 where insee='92020';
+update public.insee_communes set pct_proprietaires=33.0, pct_locataires=66.0, revenu_median=19030, pct_logements_recents=8.8, evolution_pop=1.6 where insee='94078';
+update public.insee_communes set pct_proprietaires=47.0, pct_locataires=51.5, revenu_median=31460, pct_logements_recents=26.0, evolution_pop=0.9 where insee='91477';
+update public.insee_communes set pct_proprietaires=43.8, pct_locataires=54.3, revenu_median=31250, pct_logements_recents=19.3, evolution_pop=1.2 where insee='92019';
+update public.insee_communes set pct_proprietaires=60.8, pct_locataires=37.6, revenu_median=35680, pct_logements_recents=13.9, evolution_pop=0.5 where insee='94058';
+update public.insee_communes set pct_proprietaires=43.0, pct_locataires=55.7, revenu_median=23780, pct_logements_recents=19.6, evolution_pop=2.9 where insee='95063';
+update public.insee_communes set pct_proprietaires=46.6, pct_locataires=52.3, revenu_median=27160, pct_logements_recents=24.0, evolution_pop=1.8 where insee='94079';
+update public.insee_communes set pct_proprietaires=50.8, pct_locataires=46.6, revenu_median=27470, pct_logements_recents=13.5, evolution_pop=1.7 where insee='94073';
+update public.insee_communes set pct_proprietaires=56.2, pct_locataires=42.3, revenu_median=28640, pct_logements_recents=8.1, evolution_pop=0.2 where insee='78490';
+update public.insee_communes set pct_proprietaires=56.2, pct_locataires=41.1, revenu_median=27570, pct_logements_recents=17.3, evolution_pop=1.7 where insee='06123';
+update public.insee_communes set pct_proprietaires=36.3, pct_locataires=58.3, revenu_median=24740, pct_logements_recents=14.7, evolution_pop=0.5 where insee='95500';
+update public.insee_communes set pct_proprietaires=41.3, pct_locataires=57.5, revenu_median=22200, pct_logements_recents=13.8, evolution_pop=0.9 where insee='69286';
+update public.insee_communes set pct_proprietaires=47.0, pct_locataires=49.2, revenu_median=27940, pct_logements_recents=10.2, evolution_pop=0.1 where insee='94038';
+update public.insee_communes set pct_proprietaires=46.7, pct_locataires=51.6, revenu_median=20730, pct_logements_recents=15.2, evolution_pop=1.3 where insee='84031';
+update public.insee_communes set pct_proprietaires=38.0, pct_locataires=60.2, revenu_median=28610, pct_logements_recents=12.9, evolution_pop=0.2 where insee='94016';
+update public.insee_communes set pct_proprietaires=57.1, pct_locataires=40.1, revenu_median=45740, pct_logements_recents=6.1, evolution_pop=-0.2 where insee='92064';
+update public.insee_communes set pct_proprietaires=47.2, pct_locataires=51.0, revenu_median=37720, pct_logements_recents=13.3, evolution_pop=0.3 where insee='92035';
+update public.insee_communes set pct_proprietaires=48.5, pct_locataires=48.0, revenu_median=35370, pct_logements_recents=20.0, evolution_pop=-0.1 where insee='92060';
+update public.insee_communes set pct_proprietaires=45.7, pct_locataires=51.6, revenu_median=34820, pct_logements_recents=8.2, evolution_pop=0.4 where insee='92075';
+update public.insee_communes set pct_proprietaires=66.1, pct_locataires=32.0, revenu_median=31540, pct_logements_recents=9.0, evolution_pop=0.8 where insee='94071';
+update public.insee_communes set pct_proprietaires=63.9, pct_locataires=34.5, revenu_median=28590, pct_logements_recents=11.1, evolution_pop=0.5 where insee='95607';
+update public.insee_communes set pct_proprietaires=49.3, pct_locataires=48.9, revenu_median=26470, pct_logements_recents=20.1, evolution_pop=0.2 where insee='91103';
+update public.insee_communes set pct_proprietaires=43.7, pct_locataires=54.5, revenu_median=22760, pct_logements_recents=17.3, evolution_pop=1.4 where insee='91223';
+update public.insee_communes set pct_proprietaires=53.3, pct_locataires=44.7, revenu_median=29640, pct_logements_recents=28.6, evolution_pop=-0.4 where insee='77058';
+update public.insee_communes set pct_proprietaires=51.3, pct_locataires=47.0, revenu_median=29230, pct_logements_recents=16.5, evolution_pop=0.4 where insee='33192';
+update public.insee_communes set pct_proprietaires=24.4, pct_locataires=74.6, revenu_median=20310, pct_logements_recents=7.6, evolution_pop=0.9 where insee='92078';
+update public.insee_communes set pct_proprietaires=42.8, pct_locataires=55.1, revenu_median=30640, pct_logements_recents=4.8, evolution_pop=0.3 where insee='92032';
+update public.insee_communes set pct_proprietaires=33.7, pct_locataires=64.6, revenu_median=21560, pct_logements_recents=23.2, evolution_pop=0.8 where insee='94054';
+update public.insee_communes set pct_proprietaires=63.5, pct_locataires=35.4, revenu_median=27060, pct_logements_recents=10.6, evolution_pop=0.3 where insee='77390';
+update public.insee_communes set pct_proprietaires=57.9, pct_locataires=40.0, revenu_median=42520, pct_logements_recents=9.3, evolution_pop=-0.4 where insee='78358';
+update public.insee_communes set pct_proprietaires=53.8, pct_locataires=45.2, revenu_median=24460, pct_logements_recents=16.9, evolution_pop=1.1 where insee='95424';
+update public.insee_communes set pct_proprietaires=56.7, pct_locataires=41.5, revenu_median=29580, pct_logements_recents=10.9, evolution_pop=0.6 where insee='93049';
+update public.insee_communes set pct_proprietaires=57.1, pct_locataires=40.5, revenu_median=32380, pct_logements_recents=7.9, evolution_pop=0.2 where insee='95428';
+update public.insee_communes set pct_proprietaires=54.8, pct_locataires=43.6, revenu_median=28270, pct_logements_recents=13.6, evolution_pop=0.1 where insee='77243';
+update public.insee_communes set pct_proprietaires=48.6, pct_locataires=48.9, revenu_median=41670, pct_logements_recents=5.4, evolution_pop=-1.1 where insee='94067';
+update public.insee_communes set pct_proprietaires=55.2, pct_locataires=42.8, revenu_median=38150, pct_logements_recents=9.3, evolution_pop=0.5 where insee='92014';
+update public.insee_communes set pct_proprietaires=49.0, pct_locataires=48.5, revenu_median=40220, pct_logements_recents=5.9, evolution_pop=1.1 where insee='92071';
+update public.insee_communes set pct_proprietaires=55.3, pct_locataires=42.8, revenu_median=26560, pct_logements_recents=7.9, evolution_pop=-0.9 where insee='91345';
+update public.insee_communes set pct_proprietaires=44.0, pct_locataires=54.9, revenu_median=30480, pct_logements_recents=28.7, evolution_pop=2.1 where insee='78545';
+update public.insee_communes set pct_proprietaires=53.2, pct_locataires=45.4, revenu_median=33170, pct_logements_recents=3.0, evolution_pop=-0.4 where insee='78126';
+update public.insee_communes set pct_proprietaires=61.6, pct_locataires=36.8, revenu_median=25450, pct_logements_recents=17.7, evolution_pop=0.4 where insee='77294';
+update public.insee_communes set pct_proprietaires=51.3, pct_locataires=46.7, revenu_median=36840, pct_logements_recents=12.7, evolution_pop=-0.1 where insee='92022';
+update public.insee_communes set pct_proprietaires=56.8, pct_locataires=41.7, revenu_median=25860, pct_logements_recents=9.9, evolution_pop=-0.1 where insee='91161';
+update public.insee_communes set pct_proprietaires=40.3, pct_locataires=58.0, revenu_median=24550, pct_logements_recents=15.0, evolution_pop=0.4 where insee='94021';
+update public.insee_communes set pct_proprietaires=40.7, pct_locataires=57.1, revenu_median=26450, pct_logements_recents=26.4, evolution_pop=2.5 where insee='91326';
+update public.insee_communes set pct_proprietaires=22.0, pct_locataires=75.6, revenu_median=25480, pct_logements_recents=12.5, evolution_pop=1.3 where insee='94037';
+update public.insee_communes set pct_proprietaires=30.7, pct_locataires=68.2, revenu_median=21990, pct_logements_recents=15.6, evolution_pop=0.8 where insee='94011';
+update public.insee_communes set pct_proprietaires=64.5, pct_locataires=33.8, revenu_median=35470, pct_logements_recents=17.7, evolution_pop=1.3 where insee='94015';
+update public.insee_communes set pct_proprietaires=46.5, pct_locataires=52.3, revenu_median=23560, pct_logements_recents=26.8, evolution_pop=0.7 where insee='33167';
+update public.insee_communes set pct_proprietaires=41.6, pct_locataires=57.4, revenu_median=23910, pct_logements_recents=15.9, evolution_pop=1.5 where insee='94004';
+update public.insee_communes set pct_proprietaires=33.4, pct_locataires=64.2, revenu_median=24450, pct_logements_recents=7.1, evolution_pop=-1.0 where insee='93061';
+update public.insee_communes set pct_proprietaires=61.0, pct_locataires=36.7, revenu_median=36910, pct_logements_recents=10.1, evolution_pop=-0.0 where insee='91471';
+update public.insee_communes set pct_proprietaires=47.9, pct_locataires=50.1, revenu_median=27090, pct_logements_recents=18.3, evolution_pop=-0.1 where insee='01033';
+update public.insee_communes set pct_proprietaires=68.6, pct_locataires=29.7, revenu_median=35280, pct_logements_recents=1.1, evolution_pop=-0.0 where insee='78481';
+update public.insee_communes set pct_proprietaires=47.6, pct_locataires=48.6, revenu_median=29500, pct_logements_recents=3.3, evolution_pop=0.7 where insee='60612';
+update public.insee_communes set pct_proprietaires=34.9, pct_locataires=63.4, revenu_median=18680, pct_logements_recents=16.6, evolution_pop=-1.5 where insee='93013';
+update public.insee_communes set pct_proprietaires=62.2, pct_locataires=36.3, revenu_median=29990, pct_logements_recents=6.6, evolution_pop=0.5 where insee='54578';
+update public.insee_communes set pct_proprietaires=51.4, pct_locataires=47.7, revenu_median=30410, pct_logements_recents=64.8, evolution_pop=5.2 where insee='77307';
+update public.insee_communes set pct_proprietaires=52.5, pct_locataires=45.1, revenu_median=25220, pct_logements_recents=19.2, evolution_pop=0.8 where insee='77258';
+update public.insee_communes set pct_proprietaires=66.1, pct_locataires=32.3, revenu_median=36630, pct_logements_recents=10.5, evolution_pop=-0.7 where insee='78418';
+update public.insee_communes set pct_proprietaires=40.1, pct_locataires=54.3, revenu_median=31750, pct_logements_recents=4.0, evolution_pop=0.1 where insee='94069';
+update public.insee_communes set pct_proprietaires=55.9, pct_locataires=42.6, revenu_median=29440, pct_logements_recents=14.4, evolution_pop=0.3 where insee='78242';
+update public.insee_communes set pct_proprietaires=42.9, pct_locataires=54.4, revenu_median=25200, pct_logements_recents=8.3, evolution_pop=-1.8 where insee='06012';
+update public.insee_communes set pct_proprietaires=55.4, pct_locataires=41.6, revenu_median=24340, pct_logements_recents=15.3, evolution_pop=0.1 where insee='83042';
+update public.insee_communes set pct_proprietaires=12.9, pct_locataires=77.5, revenu_median=19090, pct_logements_recents=7.9, evolution_pop=1.6 where insee='93030';
+update public.insee_communes set pct_proprietaires=56.0, pct_locataires=38.7, revenu_median=43480, pct_logements_recents=7.1, evolution_pop=-0.9 where insee='92077';
+update public.insee_communes set pct_proprietaires=83.1, pct_locataires=14.9, revenu_median=32680, pct_logements_recents=11.1, evolution_pop=0.5 where insee='94055';
+update public.insee_communes set pct_proprietaires=74.8, pct_locataires=23.3, revenu_median=33420, pct_logements_recents=27.5, evolution_pop=1.2 where insee='34255';
+update public.insee_communes set pct_proprietaires=62.4, pct_locataires=36.3, revenu_median=33110, pct_logements_recents=14.0, evolution_pop=-0.2 where insee='91661';
+update public.insee_communes set pct_proprietaires=36.1, pct_locataires=61.8, revenu_median=24000, pct_logements_recents=15.9, evolution_pop=-0.0 where insee='37195';
+update public.insee_communes set pct_proprietaires=45.7, pct_locataires=53.4, revenu_median=24250, pct_logements_recents=16.6, evolution_pop=0.8 where insee='14437';
+update public.insee_communes set pct_proprietaires=70.1, pct_locataires=27.7, revenu_median=25610, pct_logements_recents=13.1, evolution_pop=1.1 where insee='95250';
+update public.insee_communes set pct_proprietaires=33.2, pct_locataires=66.0, revenu_median=21360, pct_logements_recents=10.9, evolution_pop=0.0 where insee='76212';
+update public.insee_communes set pct_proprietaires=57.9, pct_locataires=40.6, revenu_median=26930, pct_logements_recents=22.8, evolution_pop=1.0 where insee='91514';
+update public.insee_communes set pct_proprietaires=52.3, pct_locataires=45.5, revenu_median=29220, pct_logements_recents=32.8, evolution_pop=3.4 where insee='91425';
+update public.insee_communes set pct_proprietaires=61.8, pct_locataires=36.3, revenu_median=26190, pct_logements_recents=20.0, evolution_pop=0.5 where insee='33096';
+update public.insee_communes set pct_proprietaires=60.7, pct_locataires=37.5, revenu_median=28150, pct_logements_recents=32.0, evolution_pop=0.8 where insee='34022';
+update public.insee_communes set pct_proprietaires=52.6, pct_locataires=45.6, revenu_median=25270, pct_logements_recents=23.5, evolution_pop=1.8 where insee='93074';
+update public.insee_communes set pct_proprietaires=73.3, pct_locataires=25.3, revenu_median=33520, pct_logements_recents=14.1, evolution_pop=0.6 where insee='91667';
+update public.insee_communes set pct_proprietaires=61.1, pct_locataires=37.5, revenu_median=28410, pct_logements_recents=30.3, evolution_pop=2.5 where insee='34327';
+update public.insee_communes set pct_proprietaires=67.2, pct_locataires=30.8, revenu_median=42710, pct_logements_recents=20.8, evolution_pop=1.7 where insee='78672';
+update public.insee_communes set pct_proprietaires=60.4, pct_locataires=37.5, revenu_median=33180, pct_logements_recents=11.7, evolution_pop=0.2 where insee='94065';
+update public.insee_communes set pct_proprietaires=63.1, pct_locataires=34.0, revenu_median=36850, pct_logements_recents=7.7, evolution_pop=-0.1 where insee='62826';
+update public.insee_communes set pct_proprietaires=54.0, pct_locataires=45.5, revenu_median=30140, pct_logements_recents=30.0, evolution_pop=0.8 where insee='77372';
+update public.insee_communes set pct_proprietaires=71.9, pct_locataires=23.2, revenu_median=32840, pct_logements_recents=21.4, evolution_pop=1.9 where insee='06038';
+
+-- Recapitulatif (communes renseignees / 158) :
+--   pct_proprietaires        : 158 / 158
+--   pct_locataires           : 158 / 158
+--   revenu_median            : 158 / 158
+--   pct_logements_recents    : 158 / 158
+--   evolution_pop            : 158 / 158
+-- Total communes touchees : 158 (157 seed + 1 ajoutee(s))

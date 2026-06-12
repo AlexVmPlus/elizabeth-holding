@@ -170,6 +170,17 @@ export interface RawAnnonce {
   pieces: number | null;
 }
 
+// Nettoie une URL capturee depuis le markdown : un lien markdown peut s'ecrire
+// `(url "titre")` -> le groupe capture inclut alors ` "titre"`. Une vraie URL ne
+// contient jamais d'espace brut, donc on coupe au 1er espace (retire le titre et
+// d'eventuels guillemets/parentheses residuels). Indispensable pour que le lien
+// "Voir" pointe vers une URL valide (sinon href casse par l'espace + guillemets).
+export function cleanUrl(u: string | null | undefined): string | null {
+  if (!u) return null;
+  const s = String(u).trim().split(/\s/)[0].replace(/["')\]]+$/, "");
+  return s || null;
+}
+
 // URLs d'annonces depuis le tableau `links` de Firecrawl (filtre /annonces/).
 export function annonceLinks(links: unknown): string[] {
   if (!Array.isArray(links)) return [];
@@ -197,7 +208,7 @@ export function parseAnnonces(markdown: string, links: unknown): RawAnnonce[] {
   const anchors: { title: string; url: string; idx: number }[] = [];
   let m: RegExpExecArray | null;
   while ((m = linkRe.exec(md)) !== null) {
-    anchors.push({ title: m[1].trim(), url: m[2].trim(), idx: m.index });
+    anchors.push({ title: m[1].trim(), url: cleanUrl(m[2]) || m[2].trim(), idx: m.index });
   }
 
   if (anchors.length) {
@@ -223,7 +234,7 @@ export function parseAnnonces(markdown: string, links: unknown): RawAnnonce[] {
     for (let i = 0; i < idxs.length; i++) {
       const block = md.slice(idxs[i], i + 1 < idxs.length ? idxs[i + 1] : md.length);
       out.push({
-        url: urls[i] ?? null,
+        url: cleanUrl(urls[i]),
         titre: null,
         loyer: parseLoyer(block),
         surface: parseSurface(block),

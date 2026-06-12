@@ -3,6 +3,7 @@ import {
   annonceToRow,
   buildClassifiedUrl,
   buildListUrl,
+  cleanUrl,
   detailResult,
   extractClassifiedCode,
   matchesAnnee,
@@ -188,6 +189,23 @@ Deno.test("parseAnnonces : decoupe le markdown en annonces (liens inline)", () =
   assertEquals(a[1].loyer, 590);
   assertEquals(a[2].loyer, 1250);
   assertEquals(a[2].surface, 70);
+});
+
+Deno.test("parseAnnonces : retire le titre markdown de l'URL (lien Voir valide)", () => {
+  // SeLoger ecrit ses liens `[texte](url "Seloger")` -> le titre ` "Seloger"`
+  // ne doit PAS finir dans l'URL (sinon href casse par l'espace + guillemets).
+  const md = `[Appartement 2 pièces 53 m²](https://www.seloger.com/annonces/locations/appartement/bordeaux-33/saint-jean/267627119.htm?lv=L "Seloger")
+929 € CC/mois`;
+  const a = parseAnnonces(md, []);
+  assertEquals(a.length, 1);
+  assertEquals(a[0].url, "https://www.seloger.com/annonces/locations/appartement/bordeaux-33/saint-jean/267627119.htm?lv=L");
+});
+
+Deno.test("cleanUrl : coupe au 1er espace et retire guillemets residuels", () => {
+  assertEquals(cleanUrl('https://x.fr/a.htm?lv=L "Seloger"'), "https://x.fr/a.htm?lv=L");
+  assertEquals(cleanUrl("https://x.fr/a.htm"), "https://x.fr/a.htm"); // url propre inchangee
+  assertEquals(cleanUrl(""), null);
+  assertEquals(cleanUrl(null), null);
 });
 
 Deno.test("annonceToRow : location calcule prix_m2 et typologie", () => {
