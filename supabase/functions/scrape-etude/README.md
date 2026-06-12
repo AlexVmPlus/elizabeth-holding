@@ -140,6 +140,36 @@ Coût : 1 (liste) + 1/programme (≤ 15) ≈ **16 crédits par étude Vente Neuf
 E2E Bordeaux : 15 programmes trouvés (93 annoncés), prix/m² pondéré global
 ~5 550 €/m², T1..T5 entre 4 850 et 6 700 €/m².
 
+## Arrondissements (Paris / Lyon / Marseille)
+
+"Paris 8", "Paris 8ème" ou "75008" sont detectes localement
+(`parseArrondissement`) -> INSEE arrondissement (75108), libelle "Paris 8e".
+- **Location** : page SEO `immo-paris-8eme-75/` -> le code le plus frequent a
+  le prefixe **AD09** (arrondissement) au lieu d'AD08 (ville). Valide :
+  `AD09FR33` = "Paris 8ème arrondissement, 75008" (452 annonces vs ~12 000
+  pour tout Paris).
+- **Vente Neuf** : liste `immo-paris-8eme-75008/bien-programme/` (CP complet)
+  + filtre **STRICT** sur le slug des liens programmes (la page complete avec
+  des programmes voisins type Clichy qu'il ne faut pas prendre). Valide :
+  3 programmes exactement pour Paris 8.
+
+## Cache Vente Neuf + TVA
+
+- Plafond **35 programmes**/etude. Les lots deja en base (`programmes_neufs`)
+  de moins de **7 jours** sont reutilises (0 credit) : `start` renvoie
+  `cachedAnnonces` (lots, flag `cached:true`) + `programmes` (a scraper).
+  `finalize` n'insere QUE les lots frais.
+- **TVA** : "TVA 5,5%" / "TVA réduite" detectee sur la page detail (zones
+  ANRU/QPV), sinon "20%". Colonne `tva` (migration `20260612010000`).
+- Quartier (hors arrondissement) en Vente Neuf : filtre best-effort sur
+  adresse/nom de programme dans `finalize`, note explicite sinon.
+
+## Etude complete (front)
+
+Le front enchaine location PUIS vente neuf (memes ville/quartier), puis genere
+une fiche combinee (loyers, prix neuf, rendement brut par typologie, top
+programmes avec TVA, INSEE) telechargeable en PDF (html2pdf, 2-3 pages).
+
 ## Secret
 
 `SUPABASE_URL` et `SUPABASE_SERVICE_ROLE_KEY` sont **injectés automatiquement**.

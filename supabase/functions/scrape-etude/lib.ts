@@ -92,22 +92,81 @@ export function villeSlug(ville: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+// ----------------------------------------------------------------------------
+// Arrondissements (Paris 1-20, Lyon 1-9, Marseille 1-16).
+// "Paris 8" doit cibler le 8e, pas tout Paris. Codes INSEE arrondissements :
+// Paris 75101-75120, Lyon 69381-69389, Marseille 13201-13216.
+// ----------------------------------------------------------------------------
+const ARR_VILLES: Record<string, { cp: number; insee: number; max: number }> = {
+  paris: { cp: 75000, insee: 75100, max: 20 },
+  lyon: { cp: 69000, insee: 69380, max: 9 },
+  marseille: { cp: 13000, insee: 13200, max: 16 },
+};
+
+export interface Arrondissement {
+  ville: string; // "Paris"
+  arr: number; // 8
+}
+
+// Detecte un arrondissement dans la saisie : "Paris 8", "paris 8e",
+// "Paris 8ème", "Lyon 3eme", ou un code postal "75008"/"69003"/"13012".
+export function parseArrondissement(input: string): Arrondissement | null {
+  const s = (input || "").trim();
+  let ville: string | null = null;
+  let arr = 0;
+  let m = s.match(/^(75|69|13)(\d{3})$/);
+  if (m) {
+    ville = m[1] === "75" ? "Paris" : m[1] === "69" ? "Lyon" : "Marseille";
+    arr = parseInt(m[2], 10);
+  } else {
+    m = s.match(/^(paris|lyon|marseille)\s+(\d{1,2})\s*(?:er|e(?:me)?|ème)?\s*(?:arr(?:ondissement)?\.?)?$/i);
+    if (m) {
+      ville = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
+      arr = parseInt(m[2], 10);
+    }
+  }
+  if (!ville) return null;
+  const conf = ARR_VILLES[ville.toLowerCase()];
+  return arr >= 1 && arr <= conf.max ? { ville, arr } : null;
+}
+
+export function arrInsee(a: Arrondissement): string {
+  return String(ARR_VILLES[a.ville.toLowerCase()].insee + a.arr);
+}
+
+export function arrCodePostal(a: Arrondissement): string {
+  return String(ARR_VILLES[a.ville.toLowerCase()].cp + a.arr).padStart(5, "0");
+}
+
+// Slug SeLoger d'un arrondissement : "paris-8eme", "paris-1er", "lyon-3eme".
+export function arrSlug(a: Arrondissement): string {
+  return `${villeSlug(a.ville)}-${a.arr === 1 ? "1er" : a.arr + "eme"}`;
+}
+
+// Libelle d'affichage (et cle de cache seloger_places) : "Paris 8e".
+export function arrLabel(a: Arrondissement): string {
+  return `${a.ville} ${a.arr === 1 ? "1er" : a.arr + "e"}`;
+}
+
 // Page SEO "immobilier/locations/immo-<slug>-<dept>/" : se charge via
 // Firecrawl (pas de blocage DataDome constate) et embarque ~100 fois le code
 // lieu AD08FR.. de la ville dans son JSON. C'est notre source de resolution
 // des codes classified-search (l'autocomplete moderne est elle bloquee :
 // HTTP 403 DataDome en direct, 404 via Firecrawl).
-export function seoLocationUrl(ville: string, dept: string): string {
-  return `https://www.seloger.com/immobilier/locations/immo-${villeSlug(ville)}-${dept}/`;
+// Arrondissement : immo-paris-8eme-75/ (slug arrondissement + DEPARTEMENT).
+export function seoLocationUrl(ville: string, dept: string, arr: Arrondissement | null = null): string {
+  const slug = arr ? arrSlug(arr) : villeSlug(ville);
+  return `https://www.seloger.com/immobilier/locations/immo-${slug}-${dept}/`;
 }
 
-// Code lieu VILLE (prefixe AD08FR) le plus frequent dans le HTML d'une page
-// SeLoger : le code de la ville de la page apparait dans chaque lien d'annonce
-// (~100x), les codes parents (region/departement) ~30x, les voisins 1-3x.
+// Code lieu du LIEU DE LA PAGE : prefixe AD08FR (ville) ou AD09FR
+// (arrondissement, ex Paris 8e = AD09FR33) le plus frequent dans le HTML d'une
+// page SeLoger : le code du lieu apparait dans chaque lien d'annonce (~100x),
+// les codes parents (ville/region/departement) ~30x, les voisins 1-3x.
 export function extractCityCode(html: string): string | null {
   if (!html) return null;
   const counts = new Map<string, number>();
-  for (const m of html.matchAll(/AD08FR[A-Za-z0-9]+/g)) {
+  for (const m of html.matchAll(/AD0[89]FR[A-Za-z0-9]+/g)) {
     counts.set(m[0], (counts.get(m[0]) || 0) + 1);
   }
   let best: string | null = null;
@@ -139,8 +198,11 @@ export function cutProximity(markdown: string): string {
 
 // Liste des programmes d'une ville : /immobilier/neuf/immo-<slug>-<dept>/bien-programme/
 // Pagination en suffixe de chemin : .../bien-programme/2/
-export function neufListUrl(ville: string, dept: string, page = 1): string {
-  const base = `https://www.selogerneuf.com/immobilier/neuf/immo-${villeSlug(ville)}-${dept}/bien-programme/`;
+// Arrondissement : immo-paris-8eme-75008/bien-programme/ (slug + CODE POSTAL
+// complet, valide le 12/06/2026 : "3 programmes" pour Paris 8e).
+export function neufListUrl(ville: string, dept: string, page = 1, arr: Arrondissement | null = null): string {
+  const loc = arr ? `${arrSlug(arr)}-${arrCodePostal(arr)}` : `${villeSlug(ville)}-${dept}`;
+  const base = `https://www.selogerneuf.com/immobilier/neuf/immo-${loc}/bien-programme/`;
   return page > 1 ? `${base}${page}/` : base;
 }
 
@@ -150,7 +212,9 @@ export function neufListUrl(ville: string, dept: string, page = 1): string {
 // communes voisines (ex Bruges dans la liste Bordeaux) : si `slug` est fourni,
 // on ne garde que les programmes de la ville demandee — sauf si cela vide tout
 // (petites communes), auquel cas on garde tous les liens.
-export function neufProgramLinks(links: unknown, slug?: string | null): string[] {
+// strict=true (arrondissements) : pas de fallback voisins — la liste Paris 8e
+// est completee par des programmes de Clichy etc. qu'il ne faut PAS prendre.
+export function neufProgramLinks(links: unknown, slug?: string | null, strict = false): string[] {
   if (!Array.isArray(links)) return [];
   const urls = links
     .map((l) => {
@@ -163,6 +227,7 @@ export function neufProgramLinks(links: unknown, slug?: string | null): string[]
   const all = [...new Set(urls)];
   if (!slug) return all;
   const ville = all.filter((u) => u.includes(`/programme/${slug}-`));
+  if (strict) return ville;
   return ville.length ? ville : all;
 }
 
@@ -213,6 +278,7 @@ export interface NeufMeta {
   promoteur: string | null;
   adresse: string | null;
   livraison: string | null;
+  tva: string;
 }
 
 // Metadonnees d'une page detail programme.
@@ -228,7 +294,10 @@ export function parseNeufMeta(markdown: string): NeufMeta {
   // 1ere ligne "..., 33000 Bordeaux" (sous le titre, repetee dans Le Quartier).
   const adresse = md.match(/^([^\n#![\]]{3,90},\s*\d{5}\s+[^\n,]{2,40})\s*$/m)?.[1]?.trim() || null;
   const livraison = md.match(/Livraison\s*\n+\s*([^\n]{3,60})/i)?.[1]?.trim() || null;
-  return { nom, promoteur, adresse, livraison };
+  // TVA reduite 5,5 % (zones ANRU/QPV) : badge "TVA 5,5%" / "TVA réduite" sur
+  // la page detail ; sinon TVA pleine 20 %.
+  const tva = /TVA\s*(?:r[ée]duite|5[.,]5)/i.test(md) ? "5,5%" : "20%";
+  return { nom, promoteur, adresse, livraison, tva };
 }
 
 // Garde-fou neuf : prix/m² promoteur plausible en France (2 500 - 15 000 €/m²).

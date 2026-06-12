@@ -13,6 +13,11 @@ import {
   seoLocationUrl,
   villeSlug,
   matchesAnnee,
+  parseArrondissement,
+  arrInsee,
+  arrCodePostal,
+  arrSlug,
+  arrLabel,
   neufListUrl,
   neufProgramLinks,
   parseNeufMeta,
@@ -409,4 +414,61 @@ Deno.test("isPlausibleNeuf : fourchette 2500-15000 EUR/m2", () => {
   assertEquals(isPlausibleNeuf(2400), false);
   assertEquals(isPlausibleNeuf(16000), false);
   assertEquals(isPlausibleNeuf(null), false);
+});
+
+Deno.test("parseArrondissement : Paris 8 / 8e / 8ème / 75008 / Lyon / Marseille", () => {
+  assertEquals(parseArrondissement("Paris 8"), { ville: "Paris", arr: 8 });
+  assertEquals(parseArrondissement("paris 8e"), { ville: "Paris", arr: 8 });
+  assertEquals(parseArrondissement("Paris 8ème"), { ville: "Paris", arr: 8 });
+  assertEquals(parseArrondissement("75008"), { ville: "Paris", arr: 8 });
+  assertEquals(parseArrondissement("Lyon 3eme"), { ville: "Lyon", arr: 3 });
+  assertEquals(parseArrondissement("69003"), { ville: "Lyon", arr: 3 });
+  assertEquals(parseArrondissement("13012"), { ville: "Marseille", arr: 12 });
+  assertEquals(parseArrondissement("Paris 1er"), { ville: "Paris", arr: 1 });
+  assertEquals(parseArrondissement("Paris 21"), null); // hors plage
+  assertEquals(parseArrondissement("Lyon 10"), null);
+  assertEquals(parseArrondissement("Bordeaux"), null);
+  assertEquals(parseArrondissement("75021"), null);
+});
+
+Deno.test("arrInsee / arrCodePostal / arrSlug / arrLabel", () => {
+  const p8 = { ville: "Paris", arr: 8 };
+  assertEquals(arrInsee(p8), "75108");
+  assertEquals(arrCodePostal(p8), "75008");
+  assertEquals(arrSlug(p8), "paris-8eme");
+  assertEquals(arrLabel(p8), "Paris 8e");
+  const l3 = { ville: "Lyon", arr: 3 };
+  assertEquals(arrInsee(l3), "69383");
+  assertEquals(arrCodePostal(l3), "69003");
+  const p1 = { ville: "Paris", arr: 1 };
+  assertEquals(arrSlug(p1), "paris-1er");
+  assertEquals(arrLabel(p1), "Paris 1er");
+  assertEquals(selogerCode(arrInsee(p8)), 750108); // list.htm fallback OK
+});
+
+Deno.test("URLs arrondissement : neuf (CP complet) + SEO location (dept)", () => {
+  const p8 = { ville: "Paris", arr: 8 };
+  assertEquals(neufListUrl("Paris", "75", 1, p8), "https://www.selogerneuf.com/immobilier/neuf/immo-paris-8eme-75008/bien-programme/");
+  assertEquals(seoLocationUrl("Paris", "75", p8), "https://www.seloger.com/immobilier/locations/immo-paris-8eme-75/");
+});
+
+Deno.test("neufProgramLinks strict : pas de fallback voisins en arrondissement", () => {
+  const links = [
+    "https://www.selogerneuf.com/annonces/neuf/programme/paris-8eme-75/209313613/",
+    "https://www.selogerneuf.com/annonces/neuf/programme/clichy-92/240422587/",
+  ];
+  assertEquals(neufProgramLinks(links, "paris-8eme", true).length, 1);
+  // strict + aucun lien exact -> vide (pas Clichy !)
+  assertEquals(neufProgramLinks([links[1]], "paris-8eme", true).length, 0);
+});
+
+Deno.test("extractCityCode : AD09 (arrondissement) majoritaire", () => {
+  const html = "AD09FR33 ".repeat(98) + "AD08FR31096 ".repeat(34) + "AD02FR1 ".repeat(36);
+  assertEquals(extractCityCode(html), "AD09FR33");
+});
+
+Deno.test("parseNeufMeta : TVA 5,5% detectee, sinon 20%", () => {
+  assertEquals(parseNeufMeta("# X\n\nÉligibilité\n\nLMNPTVA 5,5%PTZ").tva, "5,5%");
+  assertEquals(parseNeufMeta("# X\n\nTVA réduite").tva, "5,5%");
+  assertEquals(parseNeufMeta("# X\n\nLMNP PTZ").tva, "20%");
 });

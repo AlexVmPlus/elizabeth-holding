@@ -20,6 +20,12 @@
 
 import {
   annonceToRow,
+  arrCodePostal,
+  arrInsee,
+  arrLabel,
+  type Arrondissement,
+  arrSlug,
+  parseArrondissement,
   buildClassifiedUrl,
   buildListUrl,
   cutProximity,
@@ -62,8 +68,11 @@ const PER_PAGE = 30;
 const MAX_ITEMS = 100;
 // Vente Neuf (selogerneuf.com) : plafond de programmes scrapes en detail
 // (1 credit par programme) et de pages liste.
-const NEUF_MAX_PROGS = 15;
+const NEUF_MAX_PROGS = 35;
 const NEUF_LIST_PAGES = 4;
+// Les pages programme bougent peu : on reutilise les lots deja en base
+// (programmes_neufs) de moins de NEUF_CACHE_DAYS jours -> 0 credit pour eux.
+const NEUF_CACHE_DAYS = 7;
 
 interface ReqBody {
   phase?: "start" | "page" | "neuf-liste" | "neuf-detail" | "detail" | "finalize";
@@ -99,6 +108,18 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" },
   });
+}
+
+// Ville saisie -> { nom, citycode, codePostal, arr } : arrondissement detecte
+// localement ("Paris 8" -> INSEE 75108), sinon api-adresse.
+async function resolveCityOrArr(ville: string) {
+  const arr = parseArrondissement(ville);
+  if (arr) {
+    console.log(`[ville] arrondissement detecte : ${arrLabel(arr)} (INSEE ${arrInsee(arr)})`);
+    return { nom: arrLabel(arr), citycode: arrInsee(arr), codePostal: arrCodePostal(arr), arr };
+  }
+  const city = await resolveCity(ville);
+  return city ? { ...city, arr: null as Arrondissement | null } : null;
 }
 
 // --- api-adresse : ville -> INSEE + code postal ------------------------------
@@ -172,7 +193,7 @@ async function placeCachePut(env: Env, ville: string, insee: string | null, code
 // sinon scrape de la page SEO (1 credit) + mise en cache. La table se remplit
 // au fil de l'usage avec les villes reellement etudiees (pas de pre-sourcing).
 // Renvoie { code, credits } — credits = 1 si un scrape a eu lieu.
-async function resolveClassifiedCode(env: Env, ville: string, insee: string | null): Promise<{ code: string | null; credits: number }> {
+async function resolveClassifiedCode(env: Env, ville: string, insee: string | null, arr: Arrondissement | null = null): Promise<{ code: string | null; credits: number }> {
   const cached = await placeCacheGet(env, ville);
   if (cached) {
     console.log(`[lieu] code (cache) ${ville} -> ${cached}`);
@@ -181,7 +202,7 @@ async function resolveClassifiedCode(env: Env, ville: string, insee: string | nu
   const dept = insee ? insee.slice(0, 2) : null;
   if (!dept) return { code: null, credits: 0 };
   try {
-    const url = seoLocationUrl(ville, dept);
+    const url = seoLocationUrl(arr ? arr.ville : ville, dept, arr);
     console.log(`[lieu] resolution via page SEO : ${url}`);
     const d = await fcScrape(url, env.fcKey, ["rawHtml"], 5000);
     const html = typeof d.rawHtml === "string" ? d.rawHtml : "";
@@ -294,12 +315,13 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   const applyFilters = makeFilters(typoFilter, neufOnly, anneeMin, transaction);
   const filtres = { typologie: typoFilter, neufOnly, anneeMin };
 
-  const city = await resolveCity(ville);
+  const city = await resolveCityOrArr(ville);
   if (!city || !city.citycode) return json({ error: "ville introuvable" }, 404);
   console.log(`[start] ${city.nom} (INSEE ${city.citycode})`);
 
   // Code lieu classified-search : cache seloger_places, sinon 1 scrape SEO.
-  const resolved = await resolveClassifiedCode(env, city.nom, city.citycode);
+  // Arrondissement : la page SEO immo-paris-8eme-75 donne le code AD09FR..
+  const resolved = await resolveClassifiedCode(env, city.nom, city.citycode, city.arr);
   let credits = resolved.credits;
   const code = resolved.code;
 
@@ -424,6 +446,7 @@ function neufUnitToRow(u: any, meta: any, ctx: { ville: string; quartier: string
     surface: u.surface ?? null,
     prix_total: u.prix,
     prix_m2: u.prix_m2,
+    tva: meta.tva ?? null,
     url: ctx.url,
     source: "selogerneuf",
     scraped_at: ctx.scrapedAt,
@@ -435,17 +458,20 @@ function neufUnitToRow(u: any, meta: any, ctx: { ville: string; quartier: string
 async function handleStartNeuf(body: ReqBody, env: Env): Promise<Response> {
   const ville = (body.ville || "").trim();
   const quartier = (body.quartier || "").trim();
+  const typoFilter = /^T[1-6]$/.test(String(body.typologie || "")) ? String(body.typologie) : null;
   if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
-  const city = await resolveCity(ville);
+  const city = await resolveCityOrArr(ville);
   if (!city || !city.citycode) return json({ error: "ville introuvable" }, 404);
   const dept = city.citycode.slice(0, 2);
 
-  const url = neufListUrl(city.nom, dept, 1);
+  const url = neufListUrl(city.arr ? city.arr.ville : city.nom, dept, 1, city.arr);
   console.log(`[neuf] liste : ${url}`);
   const data = await fcScrape(url, env.fcKey, ["markdown", "links"], 6000);
   const md = typeof data.markdown === "string" ? data.markdown : "";
-  const slug = villeSlug(city.nom);
-  const programmes = neufProgramLinks(data.links, slug);
+  // Arrondissement : filtre STRICT sur le slug (la liste Paris 8e est completee
+  // par des programmes voisins type Clichy qu'il ne faut pas prendre).
+  const slug = city.arr ? arrSlug(city.arr) : villeSlug(city.nom);
+  const programmes = neufProgramLinks(data.links, slug, !!city.arr);
   const totalProgrammes = num(md.match(/(\d[\d  ]*)\s*programmes/i)?.[1]?.replace(/\s/g, "")) ?? null;
   console.log(`[neuf] ${programmes.length} programmes (total annonce : ${totalProgrammes})`);
 
@@ -455,14 +481,52 @@ async function handleStartNeuf(body: ReqBody, env: Env): Promise<Response> {
       done: true, transaction: "vente_neuf", creditsEstimes: 1, scrapedAt,
       ville: city.nom, quartier: quartier || null,
       annoncesRetenues: 0, annonces: [], parTypologie: {}, global: null,
-      message: "Aucun programme neuf trouvé pour cette ville sur SeLoger Neuf.",
+      message: city.arr
+        ? "Aucun programme neuf dans cet arrondissement sur SeLoger Neuf."
+        : "Aucun programme neuf trouvé pour cette ville sur SeLoger Neuf.",
     });
   }
+
+  // Cache programmes_neufs : les lots deja scrapes < NEUF_CACHE_DAYS jours
+  // sont reutilises (0 credit) ; seuls les programmes inconnus sont scrapes.
+  const target = programmes.slice(0, NEUF_MAX_PROGS);
+  // deno-lint-ignore no-explicit-any
+  const byUrl = new Map<string, any[]>();
+  try {
+    const since = new Date(Date.now() - NEUF_CACHE_DAYS * 86400 * 1000).toISOString();
+    const q = `${env.supaUrl}/rest/v1/programmes_neufs?ville=eq.${encodeURIComponent(city.nom)}` +
+      `&scraped_at=gt.${encodeURIComponent(since)}&select=*&order=scraped_at.desc&limit=1000`;
+    const r = await fetch(q, { headers: { "apikey": env.serviceKey, "Authorization": `Bearer ${env.serviceKey}` } });
+    if (r.ok) {
+      for (const row of await r.json()) {
+        if (!row.url) continue;
+        const g = byUrl.get(row.url);
+        if (!g) byUrl.set(row.url, [row]);
+        else if (g[0].scraped_at === row.scraped_at) g.push(row); // batch le plus recent uniquement
+      }
+    }
+  } catch { /* cache best-effort */ }
+  const cachedUrls = target.filter((u) => byUrl.has(u));
+  const toScrape = target.filter((u) => !byUrl.has(u));
+  const cachedAnnonces = cachedUrls
+    .flatMap((u) => byUrl.get(u)!)
+    .filter((r) => matchesTypologie(r.nb_pieces, typoFilter))
+    // deno-lint-ignore no-explicit-any
+    .map((r: any) => ({
+      ville: r.ville, quartier: r.quartier, code_postal: r.code_postal, transaction: "vente_neuf",
+      nom_programme: r.nom_programme, promoteur: r.promoteur, adresse: r.adresse,
+      date_livraison: r.date_livraison, nb_pieces: r.nb_pieces, typologie: r.typologie,
+      surface: r.surface, prix_total: r.prix_total, prix_m2: r.prix_m2, tva: r.tva ?? null,
+      url: r.url, source: r.source, cached: true,
+    }));
+  console.log(`[neuf] ${target.length} cibles : ${cachedUrls.length} en cache, ${toScrape.length} a scraper`);
+
   return json({
     done: false, mode: "neuf", transaction: "vente_neuf", creditsEstimes: 1, scrapedAt,
     ville: city.nom, quartier: quartier || null, codePostal: city.codePostal,
-    programmes: programmes.slice(0, NEUF_MAX_PROGS),
-    totalProgrammes, listPages: NEUF_LIST_PAGES, maxProgrammes: NEUF_MAX_PROGS,
+    programmes: toScrape, cachedAnnonces, cachedProgrammes: cachedUrls.length,
+    totalProgrammes, listPages: city.arr ? 1 : NEUF_LIST_PAGES,
+    maxProgrammes: Math.max(0, NEUF_MAX_PROGS - cachedUrls.length),
   });
 }
 
@@ -471,12 +535,12 @@ async function handleNeufListe(body: ReqBody, env: Env): Promise<Response> {
   const ville = (body.ville || "").trim();
   const page = Math.min(Math.max(Math.round(num(body.page) ?? 2), 2), NEUF_LIST_PAGES);
   if (!ville) return json({ error: "ville obligatoire" }, 400);
-  const city = await resolveCity(ville);
+  const city = await resolveCityOrArr(ville);
   if (!city || !city.citycode) return json({ error: "ville introuvable" }, 404);
-  const url = neufListUrl(city.nom, city.citycode.slice(0, 2), page);
+  const url = neufListUrl(city.arr ? city.arr.ville : city.nom, city.citycode.slice(0, 2), page, city.arr);
   console.log(`[neuf-liste ${page}] ${url}`);
   const data = await fcScrape(url, env.fcKey, ["markdown", "links"], 6000);
-  const programmes = neufProgramLinks(data.links, villeSlug(city.nom));
+  const programmes = neufProgramLinks(data.links, city.arr ? arrSlug(city.arr) : villeSlug(city.nom), !!city.arr);
   return json({ phase: "neuf-liste", page, creditsEstimes: 1, programmes });
 }
 
@@ -511,22 +575,46 @@ async function handleNeufDetail(body: ReqBody, env: Env): Promise<Response> {
 async function handleFinalizeNeuf(body: ReqBody, env: Env): Promise<Response> {
   const ville = (body.ville || "").trim();
   const quartier = (body.quartier || "").trim();
-  const annonces = Array.isArray(body.annonces) ? body.annonces : [];
+  let annonces = Array.isArray(body.annonces) ? body.annonces : [];
   if (!annonces.length) return json({ error: "annonces manquantes" }, 400);
 
+  // Quartier (hors arrondissement) : SeLoger Neuf ne cible pas les quartiers ->
+  // filtre best-effort sur l'adresse / le nom du programme. Si rien ne matche,
+  // on garde tout avec une note explicite.
+  let note: string | null = null;
+  if (quartier) {
+    const q = villeSlug(quartier);
+    const match = annonces.filter((a) =>
+      villeSlug(String(a.adresse || "")).includes(q) || villeSlug(String(a.nom_programme || "")).includes(q)
+    );
+    if (match.length) {
+      note = `Filtre quartier « ${quartier} » appliqué sur les adresses : ${match.length}/${annonces.length} lots retenus.`;
+      annonces = match;
+    } else {
+      note = `Quartier « ${quartier} » introuvable dans les adresses des programmes : étude sur toute la ville.`;
+    }
+  }
+
   const scrapedAt = new Date().toISOString();
+  // N'insere que les lots fraichement scrapes (les lots `cached` sont DEJA en base).
+  const fresh = annonces.filter((a) => !a.cached);
   try {
-    const ins = await fetch(`${env.supaUrl}/rest/v1/programmes_neufs`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": env.serviceKey,
-        "Authorization": `Bearer ${env.serviceKey}`,
-        "Prefer": "return=minimal",
-      },
-      body: JSON.stringify(annonces.map((a) => ({ ...a, scraped_at: scrapedAt }))),
-    });
-    if (!ins.ok) console.error(`[neuf-finalize] insert HTTP ${ins.status}: ${(await ins.text()).slice(0, 200)}`);
+    if (fresh.length) {
+      const ins = await fetch(`${env.supaUrl}/rest/v1/programmes_neufs`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": env.serviceKey,
+          "Authorization": `Bearer ${env.serviceKey}`,
+          "Prefer": "return=minimal",
+        },
+        body: JSON.stringify(fresh.map((a) => {
+          const { cached: _c, ...row } = a;
+          return { ...row, scraped_at: scrapedAt };
+        })),
+      });
+      if (!ins.ok) console.error(`[neuf-finalize] insert HTTP ${ins.status}: ${(await ins.text()).slice(0, 200)}`);
+    }
   } catch (e) {
     console.error("[neuf-finalize] insert echec :", e instanceof Error ? e.message : e);
   }
@@ -539,7 +627,7 @@ async function handleFinalizeNeuf(body: ReqBody, env: Env): Promise<Response> {
   }).filter((s) => s.surface > 0);
   const s = synthesize(stat, "vente");
   return json({
-    done: true, transaction: "vente_neuf", scrapedAt,
+    done: true, transaction: "vente_neuf", scrapedAt, note,
     ville: ville || null, quartier: quartier || null,
     annoncesRetenues: annonces.length, annonces,
     parTypologie: s.parTypologie, global: s.global,
