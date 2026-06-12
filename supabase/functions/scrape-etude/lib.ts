@@ -143,14 +143,39 @@ export function parseLoyer(text: string): number | null {
   return isFinite(n) && n > 0 ? n : null;
 }
 
-// Surface : "53 m²", "53m2" -> 53 ; decimales FR "160,2 m²" -> 160.2 (sans le
-// groupe decimal optionnel, le regex matchait le "2" apres la virgule -> 2 m²).
+// Surface HABITABLE : "53 m²", "53m2" -> 53 ; decimales FR "160,2 m²" -> 160.2.
+// Priorite au format des titres SeLoger "3 pièces, 2 chambres, 64,5 m²" (surface
+// habitable sure), sinon 1ere surface du bloc qui n'est PAS du terrain/jardin
+// (les descriptions citent parfois une chambre de 9 m² ou un balcon avant la
+// vraie surface -> c'etait la source des surfaces aberrantes).
 export function parseSurface(text: string): number | null {
   if (!text) return null;
-  const m = text.match(/(\d{1,4}(?:[.,]\d{1,2})?)\s*m(?:²|2)/i);
+  let m: RegExpMatchArray | null =
+    text.match(/pi[eè]ces?,(?:\s*\d+\s*chambres?,)?\s*(\d{1,4}(?:[.,]\d{1,2})?)\s*m(?:²|2)/i);
+  if (!m) {
+    for (const c of text.matchAll(/(\d{1,4}(?:[.,]\d{1,2})?)\s*m(?:²|2)(?!\s*de\s*(?:terrain|jardin))/gi)) {
+      m = c;
+      break;
+    }
+  }
   if (!m) return null;
   const n = parseFloat(m[1].replace(",", "."));
   return isFinite(n) && n > 0 ? n : null;
+}
+
+// Colocation : fausse les stats (loyer d'UNE chambre rapporte a la surface du
+// logement entier, ex 620 € / 128 m² = 4,8 €/m²). Detection titre + URL.
+export function isColocation(titre: string | null | undefined, url: string | null | undefined): boolean {
+  return /coloc/i.test(titre || "") || /colocation/i.test(url || "");
+}
+
+// Garde-fou stats : surface < 9 m² (minimum legal de location en France) =
+// parsing rate ; en location, prix/m2 CC hors [5, 60] €/m² = aberration
+// (colocation residuelle, surface fausse...). Jamais dans la synthese.
+export function isPlausible(surface: number | null, prix_m2_cc: number | null, transaction: Transaction): boolean {
+  if (surface == null || surface < 9) return false;
+  if (transaction === "location" && prix_m2_cc != null && (prix_m2_cc < 5 || prix_m2_cc > 60)) return false;
+  return true;
 }
 
 // Pieces : "2 pièces" -> 2 ; "Studio"/"T1"/"F1" -> 1 ; "T3" -> 3.

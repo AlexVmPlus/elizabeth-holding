@@ -38,7 +38,7 @@ c'est le **FRONT qui orchestre la boucle**. 4 phases :
 
 - **`start`** : résout l'INSEE (api-adresse) + le code lieu (cache
   `seloger_places`, sinon 1 scrape SEO), scrape la **page 1**, parse, filtre.
-  S'il faut d'autres pages (`maxItems` > récolte et page 1 pleine) →
+  S'il faut d'autres pages (récolte < 100 et page 1 pleine) →
   `{ done:false, code, pagesPrevues, annonces }` ; sinon insertion + synthèse
   → `{ done:true, ... }`.
 - **`page`** : scrape la **page N** (2..4) de classified-search → annonces
@@ -52,7 +52,7 @@ c'est le **FRONT qui orchestre la boucle**. 4 phases :
 ### phase `start`
 ```
 { "phase":"start", "ville":"Bordeaux", "transaction":"location",
-  "typologie":"T2", "neufOnly":false, "anneeMin":2025, "maxItems":100 }
+  "typologie":"T2", "neufOnly":false, "anneeMin":2025 }
 ```
 
 | champ        | défaut       | description                                            |
@@ -63,8 +63,11 @@ c'est le **FRONT qui orchestre la boucle**. 4 phases :
 | `typologie`  | —            | `T1`..`T6` — filtre post-récupération                  |
 | `neufOnly`   | `false`      | titre mentionne neuf/récent (post-filtre best-effort)  |
 | `anneeMin`   | —            | **vrai filtre serveur** `yearOfConstructionMin` (toute année : 2020, 2025…) ; best-effort sur titres si code lieu non résolu |
-| `maxItems`   | `30`         | 1–100 ; >30 déclenche la pagination (4 pages max, ~30/page) |
-| `forceRefresh`| ignoré      | plus de cache de résultats                             |
+
+Plafond **interne** : `MAX_ITEMS=100` / 4 pages max (plus de champ côté front).
+**Exclusions systématiques** (pré-fiche ET stats) : colocations (titre/URL
+`coloc`), surfaces < 9 m² (minimum légal -> parsing raté), et en location
+prix/m² CC hors [5, 60] €/m² (`isColocation` / `isPlausible`).
 
 ### phase `page`
 ```
@@ -94,7 +97,10 @@ plan payant (5000 crédits) ≈ 1000+ études/mois.
    (`selogerCode()`, fallback uniquement).
 2. **Scrapes** : `POST /v2/scrape`, `formats:["markdown","links"]`
    (`["rawHtml"]` pour la résolution SEO), **`waitFor:6000` OBLIGATOIRE**
-   (annonces chargées en JS), `timeout:45000`.
+   (annonces chargées en JS), `timeout:45000`, **`maxAge:0` OBLIGATOIRE**
+   (l'API v2 a un cache de scrape par défaut ~2 jours : sans `maxAge:0`,
+   relancer une étude renvoyait la même page figée). Le champ `fcCache`
+   (`metadata.cacheState`) est renvoyé par `start` pour vérifier ("miss").
 3. **Parsing** : `parseAnnonces()` découpe sur les liens `/annonces/` ; les
    titres classified contiennent prix/pièces/surface (« Duplex … 2 322 € -
    5 pièces, 160,2 m² ») — surfaces **décimales FR** gérées (`160,2` → 160.2 ;

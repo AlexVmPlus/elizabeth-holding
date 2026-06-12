@@ -25,6 +25,8 @@ import {
   cutProximity,
   detailResult,
   extractCityCode,
+  isColocation,
+  isPlausible,
   matchesAnnee,
   matchesNeuf,
   matchesTypologie,
@@ -46,9 +48,11 @@ const CORS: Record<string, string> = {
 };
 
 const FC_SCRAPE = "https://api.firecrawl.dev/v2/scrape";
-// ~30 annonces par page classified-search ; 4 pages max (~100-120 annonces).
+// ~30 annonces par page classified-search ; 4 pages max. Plafond INTERNE fixe
+// (plus de champ "Nombre max" cote front).
 const MAX_PAGES = 4;
 const PER_PAGE = 30;
+const MAX_ITEMS = 100;
 
 interface ReqBody {
   phase?: "start" | "page" | "detail" | "finalize";
@@ -58,8 +62,6 @@ interface ReqBody {
   typologie?: string;
   neufOnly?: boolean;
   anneeMin?: number | string;
-  maxItems?: number;
-  forceRefresh?: boolean; // ignore (plus de cache de resultats)
   // phase "page"
   code?: string;
   page?: number;
@@ -105,11 +107,13 @@ async function resolveCity(ville: string) {
 }
 
 // --- Firecrawl : 1 scrape simple (jamais de batch) ---------------------------
+// maxAge:0 OBLIGATOIRE : l'API v2 a un cache de scrape active par defaut
+// (~2 jours) -> sans lui, relancer une etude renvoyait la MEME page figee.
 async function fcScrape(url: string, key: string, formats: string[], waitFor: number): Promise<Record<string, unknown>> {
   const r = await fetch(FC_SCRAPE, {
     method: "POST",
     headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ url, formats, waitFor, timeout: 45000 }),
+    body: JSON.stringify({ url, formats, waitFor, timeout: 45000, maxAge: 0 }),
   });
   if (!r.ok) throw new Error(`Firecrawl HTTP ${r.status}: ${(await r.text()).slice(0, 300)}`);
   const j = await r.json();
@@ -243,12 +247,13 @@ function toInsertRow(a: any, transaction: Transaction, scrapedAt: string) {
   };
 }
 
-// Filtres post-recuperation communs aux phases "start" et "page".
-// applyAnnee = false quand l'annee est deja filtree cote serveur (classified).
-function makeFilters(typoFilter: string | null, neufOnly: boolean, anneeMin: number | null) {
+// Filtres post-recuperation communs aux phases "start" et "page" :
+// exclusions systematiques (colocations, surfaces/prix aberrants) puis filtres
+// utilisateur. applyAnnee = false quand l'annee est deja filtree cote serveur.
+function makeFilters(typoFilter: string | null, neufOnly: boolean, anneeMin: number | null, transaction: Transaction) {
   // deno-lint-ignore no-explicit-any
   return (arr: any[], applyAnnee = true) => {
-    let out = arr;
+    let out = arr.filter((r) => !isColocation(r.titre, r.url) && isPlausible(r.surface, r.prix_m2_cc, transaction));
     if (typoFilter) out = out.filter((r) => matchesTypologie(r.nb_pieces, typoFilter));
     if (neufOnly) out = out.filter((r) => matchesNeuf(r.titre));
     if (anneeMin && applyAnnee) {
@@ -261,7 +266,7 @@ function makeFilters(typoFilter: string | null, neufOnly: boolean, anneeMin: num
 
 // ============================================================================
 // PHASE "start" : resolution code lieu + 1 scrape (page 1).
-// Si d'autres pages sont necessaires (maxItems > recoltees), renvoie
+// Si d'autres pages sont necessaires (moins de MAX_ITEMS recoltees), renvoie
 // done:false + le code lieu : le front enchaine phase "page" (2..4) puis
 // "finalize". Sinon : insertion + synthese directes (done:true).
 // PAS de cache de resultats : chaque etude relance un vrai scraping.
@@ -270,14 +275,13 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   const ville = (body.ville || "").trim();
   const quartier = (body.quartier || "").trim();
   const transaction: Transaction = body.transaction === "vente" ? "vente" : "location";
-  const maxItems = Math.min(Math.max(Math.round(num(body.maxItems) ?? 30), 1), 100);
   const typoFilter = /^T[1-6]$/.test(String(body.typologie || "")) ? String(body.typologie) : null;
   const neufOnly = body.neufOnly === true;
   const anneeMin = num(body.anneeMin);
   if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
 
-  const applyFilters = makeFilters(typoFilter, neufOnly, anneeMin);
-  const filtres = { typologie: typoFilter, neufOnly, anneeMin, maxItems };
+  const applyFilters = makeFilters(typoFilter, neufOnly, anneeMin, transaction);
+  const filtres = { typologie: typoFilter, neufOnly, anneeMin };
 
   const city = await resolveCity(ville);
   if (!city || !city.citycode) return json({ error: "ville introuvable" }, 404);
@@ -309,6 +313,9 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   console.log(`[start] Firecrawl : ${searchUrl}`);
   const data = await fcScrape(searchUrl, env.fcKey, ["markdown", "links"], 6000);
   credits += 1;
+  // cacheState "miss" attendu (maxAge:0) : trace pour verifier la fraicheur.
+  const fcCache = (data.metadata as Record<string, unknown> | undefined)?.cacheState ?? null;
+  console.log(`[start] cacheState=${fcCache}`);
   const md = cutProximity(typeof data.markdown === "string" ? data.markdown : "");
   const raw = parseAnnonces(md, data.links);
   console.log(`[start] ${raw.length} annonces brutes`);
@@ -316,17 +323,17 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   const scrapedAt = new Date().toISOString();
   const ctx = { ville: city.nom, quartier: quartier || null, code_postal: city.codePostal, transaction, scrapedAt };
   let rows: Row[] = raw.map((a) => annonceToRow(a, ctx)).filter((r): r is Row => r !== null && !!r.url);
-  rows = applyFilters(rows, !anneeServerSide).slice(0, maxItems);
+  rows = applyFilters(rows, !anneeServerSide).slice(0, MAX_ITEMS);
   const partielles = rows.map(toAnnonce);
   console.log(`[start] ${partielles.length} annonces retenues (page 1)`);
 
-  // D'autres pages sont-elles utiles ? (classified uniquement : la page 1 est
-  // pleine a ~PER_PAGE annonces ET le front en veut plus.)
-  const pagesPrevues = code ? Math.min(MAX_PAGES, Math.ceil(maxItems / PER_PAGE)) : 1;
-  const needMore = code !== null && pagesPrevues > 1 && partielles.length < maxItems && raw.length >= PER_PAGE - 10;
+  // D'autres pages sont-elles utiles ? (classified uniquement, et seulement si
+  // la page 1 est pleine — sinon il n'y a plus rien a chercher.)
+  const pagesPrevues = code ? MAX_PAGES : 1;
+  const needMore = code !== null && partielles.length < MAX_ITEMS && raw.length >= PER_PAGE - 10;
   if (needMore) {
     return json({
-      done: false, fromCache: false, creditsEstimes: credits, scrapedAt,
+      done: false, creditsEstimes: credits, scrapedAt, fcCache,
       ville: city.nom, quartier: quartier || null, codePostal: city.codePostal,
       transaction, code, searchUrl, filtres, pagesPrevues,
       annonces: partielles, note,
@@ -337,7 +344,7 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   // ESTIMEES cote front — le detail des charges reste bloque par DataDome).
   if (partielles.length === 0) {
     return json({
-      done: true, fromCache: false, creditsEstimes: credits, scrapedAt,
+      done: true, creditsEstimes: credits, scrapedAt, fcCache,
       ville: city.nom, quartier: quartier || null, transaction, searchUrl, filtres,
       annoncesRetenues: 0, annonces: [], parTypologie: {}, global: null, note,
       message: "Aucune annonce exploitable (autre ville/transaction, retirez des filtres).",
@@ -346,7 +353,7 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   await insertRows(env, partielles.map((a) => toInsertRow(a, transaction, scrapedAt))).catch((e) => console.error("[start] insert:", e));
   const s = synthesize(partielles, transaction);
   return json({
-    done: true, fromCache: false, creditsEstimes: credits, scrapedAt,
+    done: true, creditsEstimes: credits, scrapedAt, fcCache,
     ville: city.nom, quartier: quartier || null, transaction, searchUrl, filtres,
     annoncesRetenues: partielles.length, annonces: partielles, note,
     parTypologie: s.parTypologie, global: s.global,
@@ -378,7 +385,7 @@ async function handlePage(body: ReqBody, env: Env): Promise<Response> {
   const ctx = { ville, quartier: quartier || null, code_postal: body.codePostal || null, transaction, scrapedAt };
   let rows: Row[] = raw.map((a) => annonceToRow(a, ctx)).filter((r): r is Row => r !== null && !!r.url);
   // annee deja filtree cote serveur (classified) -> applyAnnee=false
-  rows = makeFilters(typoFilter, neufOnly, anneeMin)(rows, false);
+  rows = makeFilters(typoFilter, neufOnly, anneeMin, transaction)(rows, false);
   console.log(`[page ${page}] ${rows.length} annonces retenues`);
   return json({ phase: "page", page, creditsEstimes: 1, annonces: rows.map(toAnnonce) });
 }
@@ -423,7 +430,7 @@ async function handleFinalize(body: ReqBody, env: Env): Promise<Response> {
   }
   const s = synthesize(annonces, transaction);
   return json({
-    done: true, fromCache: false, scrapedAt,
+    done: true, scrapedAt,
     ville: ville || null, quartier: quartier || null, transaction,
     annoncesRetenues: annonces.length, annonces: annonces.map(toAnnonce),
     parTypologie: s.parTypologie, global: s.global,

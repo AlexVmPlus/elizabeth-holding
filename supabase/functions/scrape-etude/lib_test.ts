@@ -8,6 +8,8 @@ import {
   detailResult,
   extractCityCode,
   extractClassifiedCode,
+  isColocation,
+  isPlausible,
   seoLocationUrl,
   villeSlug,
   matchesAnnee,
@@ -299,4 +301,28 @@ Deno.test("cutProximity : coupe la section 'Plus d'annonces à proximité'", () 
   assertEquals(cutProximity(md).includes("voisine"), false);
   assertEquals(cutProximity(md).includes("exacte"), true);
   assertEquals(cutProximity("sans section"), "sans section");
+});
+
+Deno.test("parseSurface : priorite au format titre, pas au 1er m² venu", () => {
+  // une chambre de 9 m² citee AVANT la surface du titre ne doit plus gagner
+  assertEquals(parseSurface("chambre de 9 m² ... 5 pièces, 4 chambres, 161 m²"), 161);
+  assertEquals(parseSurface("Maison à louer - 3 325 € - 6 pièces, 145,5 m², 1 000 m² de terrain"), 145.5);
+  assertEquals(parseSurface("1 pièce, 18 m²"), 18); // singulier
+  assertEquals(parseSurface("balcon 1 000 m² de terrain"), null); // terrain seul -> rien
+});
+
+Deno.test("isColocation : titre ou URL", () => {
+  assertEquals(isColocation("Colocation à louer - Bordeaux", null), true);
+  assertEquals(isColocation("Chambre en coloc meublée", null), true);
+  assertEquals(isColocation("Appartement T3", "https://www.seloger.com/annonces/locations/colocation/bordeaux-33/x.htm"), true);
+  assertEquals(isColocation("Appartement T3", "https://www.seloger.com/annonces/locations/appartement/bordeaux-33/x.htm"), false);
+});
+
+Deno.test("isPlausible : garde-fou surfaces/prix", () => {
+  assertEquals(isPlausible(2, 400, "location"), false); // surface < 9 (parsing rate)
+  assertEquals(isPlausible(128, 4.8, "location"), false); // coloc 620 €/128 m²
+  assertEquals(isPlausible(17, 65, "location"), false); // > 60 €/m²
+  assertEquals(isPlausible(17, 36, "location"), true); // studio cher mais plausible
+  assertEquals(isPlausible(86, 5081, "vente"), true); // vente : pas de fourchette loyer
+  assertEquals(isPlausible(5, 5000, "vente"), false); // mais surface mini quand meme
 });
