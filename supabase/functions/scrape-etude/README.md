@@ -117,6 +117,29 @@ plan payant (5000 crédits) ≈ 1000+ études/mois.
 - `list.htm` `LISTING-LISTpg=2` : 19 doublons / 25 → abandonné pour la
   pagination (fallback 1 page seulement).
 
+## Vente Neuf (`transaction:"vente_neuf"`) — SeLoger Neuf
+
+Programmes neufs promoteurs via **selogerneuf.com** (validé le 12/06/2026) :
+liste `/immobilier/neuf/immo-<slug>-<dept>/bien-programme/` (pagination `/2/`),
+détail programme = nom, « Proposé par <promoteur> », adresse, livraison, lots
+avec prix, « Soit X €/m² » et surface. Phases (toujours 1 scrape/appel) :
+
+- **`start`** (`transaction:"vente_neuf"`) : liste page 1 → liens programmes
+  (`neufProgramLinks`, ville exacte d'abord, voisins en secours) →
+  `{ done:false, mode:"neuf", programmes:[urls], maxProgrammes:15 }`.
+- **`neuf-liste`** : page N de la liste si la page 1 n'a pas assez de
+  programmes (petites villes).
+- **`neuf-detail`** : 1 programme par appel (séquentiel côté front) →
+  `parseNeufMeta` + `parseNeufUnits`, garde-fou `isPlausibleNeuf`
+  (2 500–15 000 €/m²), filtre typologie → lignes `programmes_neufs`.
+- **`finalize`** (`transaction:"vente_neuf"`) : insertion table
+  **`programmes_neufs`** (migration `20260612000000`) + synthèse pondérée par
+  surface des prix/m² promoteurs.
+
+Coût : 1 (liste) + 1/programme (≤ 15) ≈ **16 crédits par étude Vente Neuf**.
+E2E Bordeaux : 15 programmes trouvés (93 annoncés), prix/m² pondéré global
+~5 550 €/m², T1..T5 entre 4 850 et 6 700 €/m².
+
 ## Secret
 
 `SUPABASE_URL` et `SUPABASE_SERVICE_ROLE_KEY` sont **injectés automatiquement**.

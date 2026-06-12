@@ -13,6 +13,11 @@ import {
   seoLocationUrl,
   villeSlug,
   matchesAnnee,
+  neufListUrl,
+  neufProgramLinks,
+  parseNeufMeta,
+  parseNeufUnits,
+  isPlausibleNeuf,
   matchesNeuf,
   matchesTypologie,
   mergeCharges,
@@ -325,4 +330,83 @@ Deno.test("isPlausible : garde-fou surfaces/prix", () => {
   assertEquals(isPlausible(17, 36, "location"), true); // studio cher mais plausible
   assertEquals(isPlausible(86, 5081, "vente"), true); // vente : pas de fourchette loyer
   assertEquals(isPlausible(5, 5000, "vente"), false); // mais surface mini quand meme
+});
+
+Deno.test("neufListUrl : liste programmes + pagination par chemin", () => {
+  assertEquals(neufListUrl("Bordeaux", "33"), "https://www.selogerneuf.com/immobilier/neuf/immo-bordeaux-33/bien-programme/");
+  assertEquals(neufListUrl("Saint-Étienne", "42", 3), "https://www.selogerneuf.com/immobilier/neuf/immo-saint-etienne-42/bien-programme/3/");
+});
+
+Deno.test("neufProgramLinks : filtre ville, dedup fragments, fallback voisins", () => {
+  const links = [
+    "https://www.selogerneuf.com/annonces/neuf/programme/bordeaux-33/239371723/#m=xxx",
+    "https://www.selogerneuf.com/annonces/neuf/programme/bordeaux-33/239371723/",
+    "https://www.selogerneuf.com/annonces/neuf/programme/bruges-33/257906145/",
+    "https://www.selogerneuf.com/immobilier/neuf/immo-bordeaux-33/bien-programme/2/",
+  ];
+  const bdx = neufProgramLinks(links, "bordeaux");
+  assertEquals(bdx, ["https://www.selogerneuf.com/annonces/neuf/programme/bordeaux-33/239371723/"]);
+  assertEquals(neufProgramLinks(links, null).length, 2); // bordeaux + bruges
+  // que des voisins -> fallback tous (petites communes)
+  assertEquals(neufProgramLinks(links, "pessac").length, 2);
+});
+
+Deno.test("parseNeufUnits : lots Studio / N pièces (extrait reel selogerneuf)", () => {
+  const md = `Logements disponibles
+
+- StudioDe 141 100 € à 189 500 €
+
+61 biens
+
+  - Studio
+
+    141 100 €
+
+    Soit 7 521 €/m²
+
+    19 m²
+
+    1er étageExposition Sud EstAscenseur
+
+- Appartement2 piècesDe 221 400 € à 227 000 €
+
+  - Appartement2 pièces
+
+    221 400 €
+
+    Soit 6 340 €/m²
+
+    35 m²
+`;
+  const u = parseNeufUnits(md);
+  assertEquals(u.length, 2);
+  assertEquals(u[0], { pieces: 1, prix: 141100, prix_m2: 7521, surface: 19 });
+  assertEquals(u[1], { pieces: 2, prix: 221400, prix_m2: 6340, surface: 35 });
+});
+
+Deno.test("parseNeufMeta : nom / promoteur / adresse / livraison", () => {
+  const md = `Proposé par Marignan, mis à jour le 12/06/2026
+
+# L'Ecrin des Chartrons
+
+249 Rue du Jardin Public, 33000 Bordeaux
+
+Livraison
+
+3e trimestre 2027
+`;
+  const m = parseNeufMeta(md);
+  assertEquals(m.nom, "L'Ecrin des Chartrons");
+  assertEquals(m.promoteur, "Marignan");
+  assertEquals(m.adresse, "249 Rue du Jardin Public, 33000 Bordeaux");
+  assertEquals(m.livraison, "3e trimestre 2027");
+  // echappements markdown retires du nom
+  assertEquals(parseNeufMeta("# KLEEZI \\| THIERS BORDEAUX\n").nom, "KLEEZI | THIERS BORDEAUX");
+});
+
+Deno.test("isPlausibleNeuf : fourchette 2500-15000 EUR/m2", () => {
+  assertEquals(isPlausibleNeuf(5735), true);
+  assertEquals(isPlausibleNeuf(2400), false);
+  assertEquals(isPlausibleNeuf(16000), false);
+  assertEquals(isPlausibleNeuf(null), false);
 });

@@ -27,16 +27,23 @@ import {
   extractCityCode,
   isColocation,
   isPlausible,
+  isPlausibleNeuf,
   matchesAnnee,
   matchesNeuf,
   matchesTypologie,
+  neufListUrl,
+  neufProgramLinks,
   num,
   parseAnnonces,
+  parseNeufMeta,
+  parseNeufUnits,
   type Row,
   selogerCode,
   seoLocationUrl,
   synthesize,
   type Transaction,
+  typologie,
+  villeSlug,
 } from "./lib.ts";
 
 const ALLOWED_ORIGIN = "https://alexvmplus.github.io";
@@ -53,12 +60,16 @@ const FC_SCRAPE = "https://api.firecrawl.dev/v2/scrape";
 const MAX_PAGES = 4;
 const PER_PAGE = 30;
 const MAX_ITEMS = 100;
+// Vente Neuf (selogerneuf.com) : plafond de programmes scrapes en detail
+// (1 credit par programme) et de pages liste.
+const NEUF_MAX_PROGS = 15;
+const NEUF_LIST_PAGES = 4;
 
 interface ReqBody {
-  phase?: "start" | "page" | "detail" | "finalize";
+  phase?: "start" | "page" | "neuf-liste" | "neuf-detail" | "detail" | "finalize";
   ville?: string;
   quartier?: string;
-  transaction?: Transaction;
+  transaction?: Transaction | "vente_neuf";
   typologie?: string;
   neufOnly?: boolean;
   anneeMin?: number | string;
@@ -391,6 +402,152 @@ async function handlePage(body: ReqBody, env: Env): Promise<Response> {
 }
 
 // ============================================================================
+// VENTE NEUF (selogerneuf.com) : programmes neufs promoteurs.
+// Meme architecture "1 scrape par appel" : "start" (liste page 1) ->
+// "neuf-liste" (pages 2..4 si besoin) -> "neuf-detail" (1 programme par appel,
+// sequentiel cote front, plafond NEUF_MAX_PROGS) -> "finalize".
+// ============================================================================
+
+// deno-lint-ignore no-explicit-any
+function neufUnitToRow(u: any, meta: any, ctx: { ville: string; quartier: string | null; codePostal: string | null; url: string; scrapedAt: string }) {
+  return {
+    ville: ctx.ville,
+    quartier: ctx.quartier,
+    code_postal: ctx.codePostal,
+    transaction: "vente_neuf",
+    nom_programme: meta.nom ?? null,
+    promoteur: meta.promoteur ?? null,
+    adresse: meta.adresse ?? null,
+    date_livraison: meta.livraison ?? null,
+    nb_pieces: u.pieces ?? null,
+    typologie: typologie(u.pieces),
+    surface: u.surface ?? null,
+    prix_total: u.prix,
+    prix_m2: u.prix_m2,
+    url: ctx.url,
+    source: "selogerneuf",
+    scraped_at: ctx.scrapedAt,
+  };
+}
+
+// PHASE "start" (transaction=vente_neuf) : 1 scrape (liste page 1) -> liens
+// programmes (ville exacte d'abord, voisins en secours). Le front enchaine.
+async function handleStartNeuf(body: ReqBody, env: Env): Promise<Response> {
+  const ville = (body.ville || "").trim();
+  const quartier = (body.quartier || "").trim();
+  if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
+  const city = await resolveCity(ville);
+  if (!city || !city.citycode) return json({ error: "ville introuvable" }, 404);
+  const dept = city.citycode.slice(0, 2);
+
+  const url = neufListUrl(city.nom, dept, 1);
+  console.log(`[neuf] liste : ${url}`);
+  const data = await fcScrape(url, env.fcKey, ["markdown", "links"], 6000);
+  const md = typeof data.markdown === "string" ? data.markdown : "";
+  const slug = villeSlug(city.nom);
+  const programmes = neufProgramLinks(data.links, slug);
+  const totalProgrammes = num(md.match(/(\d[\d  ]*)\s*programmes/i)?.[1]?.replace(/\s/g, "")) ?? null;
+  console.log(`[neuf] ${programmes.length} programmes (total annonce : ${totalProgrammes})`);
+
+  const scrapedAt = new Date().toISOString();
+  if (!programmes.length) {
+    return json({
+      done: true, transaction: "vente_neuf", creditsEstimes: 1, scrapedAt,
+      ville: city.nom, quartier: quartier || null,
+      annoncesRetenues: 0, annonces: [], parTypologie: {}, global: null,
+      message: "Aucun programme neuf trouvé pour cette ville sur SeLoger Neuf.",
+    });
+  }
+  return json({
+    done: false, mode: "neuf", transaction: "vente_neuf", creditsEstimes: 1, scrapedAt,
+    ville: city.nom, quartier: quartier || null, codePostal: city.codePostal,
+    programmes: programmes.slice(0, NEUF_MAX_PROGS),
+    totalProgrammes, listPages: NEUF_LIST_PAGES, maxProgrammes: NEUF_MAX_PROGS,
+  });
+}
+
+// PHASE "neuf-liste" : 1 scrape (liste page N) -> liens programmes en plus.
+async function handleNeufListe(body: ReqBody, env: Env): Promise<Response> {
+  const ville = (body.ville || "").trim();
+  const page = Math.min(Math.max(Math.round(num(body.page) ?? 2), 2), NEUF_LIST_PAGES);
+  if (!ville) return json({ error: "ville obligatoire" }, 400);
+  const city = await resolveCity(ville);
+  if (!city || !city.citycode) return json({ error: "ville introuvable" }, 404);
+  const url = neufListUrl(city.nom, city.citycode.slice(0, 2), page);
+  console.log(`[neuf-liste ${page}] ${url}`);
+  const data = await fcScrape(url, env.fcKey, ["markdown", "links"], 6000);
+  const programmes = neufProgramLinks(data.links, villeSlug(city.nom));
+  return json({ phase: "neuf-liste", page, creditsEstimes: 1, programmes });
+}
+
+// PHASE "neuf-detail" : 1 scrape (page programme) -> meta + lots plausibles.
+// En cas d'echec : 200 avec annonces=[] (le front continue avec les autres).
+async function handleNeufDetail(body: ReqBody, env: Env): Promise<Response> {
+  const url = String(body.url || "");
+  const ville = (body.ville || "").trim();
+  const quartier = (body.quartier || "").trim();
+  if (!url || !ville) return json({ error: "url et ville obligatoires" }, 400);
+  const typoFilter = /^T[1-6]$/.test(String(body.typologie || "")) ? String(body.typologie) : null;
+  try {
+    const data = await fcScrape(url, env.fcKey, ["markdown"], 6000);
+    const md = typeof data.markdown === "string" ? data.markdown : "";
+    const meta = parseNeufMeta(md);
+    const units = parseNeufUnits(md)
+      .filter((u) => isPlausibleNeuf(u.prix_m2))
+      .filter((u) => matchesTypologie(u.pieces, typoFilter));
+    const scrapedAt = new Date().toISOString();
+    const ctx = { ville, quartier: quartier || null, codePostal: body.codePostal || null, url, scrapedAt };
+    const rows = units.map((u) => neufUnitToRow(u, meta, ctx));
+    console.log(`[neuf-detail] ${meta.nom} (${meta.promoteur}) : ${rows.length} lots`);
+    return json({ phase: "neuf-detail", url, creditsEstimes: 1, programme: { ...meta, url }, annonces: rows });
+  } catch (e) {
+    console.error("[neuf-detail] echec :", e instanceof Error ? e.message : e);
+    return json({ phase: "neuf-detail", url, creditsEstimes: 1, programme: { url }, annonces: [] });
+  }
+}
+
+// PHASE "finalize" (vente_neuf) : 0 scrape -> insertion programmes_neufs +
+// synthese ponderee par surface (prix_m2 des lots).
+async function handleFinalizeNeuf(body: ReqBody, env: Env): Promise<Response> {
+  const ville = (body.ville || "").trim();
+  const quartier = (body.quartier || "").trim();
+  const annonces = Array.isArray(body.annonces) ? body.annonces : [];
+  if (!annonces.length) return json({ error: "annonces manquantes" }, 400);
+
+  const scrapedAt = new Date().toISOString();
+  try {
+    const ins = await fetch(`${env.supaUrl}/rest/v1/programmes_neufs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": env.serviceKey,
+        "Authorization": `Bearer ${env.serviceKey}`,
+        "Prefer": "return=minimal",
+      },
+      body: JSON.stringify(annonces.map((a) => ({ ...a, scraped_at: scrapedAt }))),
+    });
+    if (!ins.ok) console.error(`[neuf-finalize] insert HTTP ${ins.status}: ${(await ins.text()).slice(0, 200)}`);
+  } catch (e) {
+    console.error("[neuf-finalize] insert echec :", e instanceof Error ? e.message : e);
+  }
+
+  // Synthese : lots -> StatRow (prix_m2 -> prix_m2_cc), ponderation "vente".
+  // Lots sans surface : surface estimee prix/prix_m2 (coherente par construction).
+  const stat = annonces.map((a) => {
+    const surface = a.surface ?? (a.prix_total && a.prix_m2 ? Math.round((a.prix_total / a.prix_m2) * 10) / 10 : 0);
+    return { surface, typologie: a.typologie ?? null, loyer_cc: null, loyer_hc: null, prix_m2_cc: a.prix_m2 ?? null, prix_m2_hc: a.prix_m2 ?? null };
+  }).filter((s) => s.surface > 0);
+  const s = synthesize(stat, "vente");
+  return json({
+    done: true, transaction: "vente_neuf", scrapedAt,
+    ville: ville || null, quartier: quartier || null,
+    annoncesRetenues: annonces.length, annonces,
+    parTypologie: s.parTypologie, global: s.global,
+    creditsEstimes: num(body.credits) ?? 0,
+  });
+}
+
+// ============================================================================
 // PHASE "detail" : 1 scrape (UNE page detail) -> charges / loyer_hc
 // ============================================================================
 async function handleDetail(body: ReqBody, env: Env): Promise<Response> {
@@ -459,8 +616,13 @@ Deno.serve(async (req: Request) => {
 
   try {
     if (body.phase === "page") return await handlePage(body, env);
+    if (body.phase === "neuf-liste") return await handleNeufListe(body, env);
+    if (body.phase === "neuf-detail") return await handleNeufDetail(body, env);
     if (body.phase === "detail") return await handleDetail(body, env);
-    if (body.phase === "finalize") return await handleFinalize(body, env);
+    if (body.phase === "finalize") {
+      return body.transaction === "vente_neuf" ? await handleFinalizeNeuf(body, env) : await handleFinalize(body, env);
+    }
+    if (body.transaction === "vente_neuf") return await handleStartNeuf(body, env);
     return await handleStart(body, env);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);

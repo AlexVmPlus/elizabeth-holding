@@ -131,6 +131,112 @@ export function cutProximity(markdown: string): string {
 }
 
 // ----------------------------------------------------------------------------
+// SeLoger NEUF (selogerneuf.com) — programmes neufs promoteurs ("vente_neuf").
+// Valide le 12/06/2026 via Firecrawl : liste + detail se chargent (waitFor
+// 6000), la page detail expose nom / "Propose par <promoteur>" / adresse /
+// livraison / lots avec prix, "Soit X €/m²" et surface.
+// ----------------------------------------------------------------------------
+
+// Liste des programmes d'une ville : /immobilier/neuf/immo-<slug>-<dept>/bien-programme/
+// Pagination en suffixe de chemin : .../bien-programme/2/
+export function neufListUrl(ville: string, dept: string, page = 1): string {
+  const base = `https://www.selogerneuf.com/immobilier/neuf/immo-${villeSlug(ville)}-${dept}/bien-programme/`;
+  return page > 1 ? `${base}${page}/` : base;
+}
+
+// Liens programmes d'une page liste neuf. Format :
+//   /annonces/neuf/programme/<ville>-<dpt>/<id>/  (+ variantes #fragment)
+// On retire fragment/query et on dedoublonne. La liste d'une ville inclut des
+// communes voisines (ex Bruges dans la liste Bordeaux) : si `slug` est fourni,
+// on ne garde que les programmes de la ville demandee — sauf si cela vide tout
+// (petites communes), auquel cas on garde tous les liens.
+export function neufProgramLinks(links: unknown, slug?: string | null): string[] {
+  if (!Array.isArray(links)) return [];
+  const urls = links
+    .map((l) => {
+      if (typeof l === "string") return l;
+      if (l && typeof l === "object" && "url" in l) return String((l as { url: unknown }).url);
+      return "";
+    })
+    .filter((u) => /\/annonces\/neuf\/programme\//.test(u))
+    .map((u) => u.split("#")[0].split("?")[0]);
+  const all = [...new Set(urls)];
+  if (!slug) return all;
+  const ville = all.filter((u) => u.includes(`/programme/${slug}-`));
+  return ville.length ? ville : all;
+}
+
+export interface NeufUnit {
+  pieces: number | null;
+  prix: number;
+  prix_m2: number;
+  surface: number | null;
+}
+
+// Lots d'une page detail programme. Chaque lot s'ecrit (markdown Firecrawl) :
+//   - Studio | Appartement2 pièces
+//     141 100 €
+//     Soit 7 521 €/m²
+//     19 m²
+// On ancre sur "Soit X €/m²" (propre aux lots) : prix = dernier montant €
+// AVANT l'ancre, pieces = derniere mention Studio/"N pièces" avant, surface =
+// premier "Y m²" apres. Les entetes de groupe "De X € à Y €" ne genent pas
+// (le dernier € avant "Soit" est toujours le prix du lot).
+export function parseNeufUnits(markdown: string): NeufUnit[] {
+  const md = (markdown || "").replace(new RegExp(`[${SP}]`, "g"), " ");
+  const out: NeufUnit[] = [];
+  const anchor = /Soit\s*([\d ]{3,12})\s*€\/m²/g;
+  let m: RegExpExecArray | null;
+  while ((m = anchor.exec(md)) !== null) {
+    const prix_m2 = parseInt(m[1].replace(/ /g, ""), 10);
+    const back = md.slice(Math.max(0, m.index - 240), m.index);
+    let prix: number | null = null;
+    for (const p of back.matchAll(/(\d[\d ]{2,12})\s*€(?!\/m)/g)) {
+      prix = parseInt(p[1].replace(/ /g, ""), 10);
+    }
+    let pieces: number | null = null;
+    for (const p of back.matchAll(/studio|(\d+)\s*pi[eè]ces?/gi)) {
+      pieces = p[1] ? parseInt(p[1], 10) : 1;
+    }
+    const fwd = md.slice(anchor.lastIndex, anchor.lastIndex + 130);
+    const s = fwd.match(/(\d{1,4}(?:[.,]\d{1,2})?)\s*m²/);
+    const surface = s ? parseFloat(s[1].replace(",", ".")) : null;
+    if (prix != null && prix > 0 && isFinite(prix_m2) && prix_m2 > 0) {
+      out.push({ pieces, prix, prix_m2, surface: surface != null && surface >= 8 ? surface : null });
+    }
+  }
+  return out;
+}
+
+export interface NeufMeta {
+  nom: string | null;
+  promoteur: string | null;
+  adresse: string | null;
+  livraison: string | null;
+}
+
+// Metadonnees d'une page detail programme.
+export function parseNeufMeta(markdown: string): NeufMeta {
+  const md = markdown || "";
+  // retire les echappements markdown de Firecrawl ("KLEEZI \| THIERS" -> "KLEEZI | THIERS")
+  const nom = md.match(/^#\s+(.+)$/m)?.[1]?.replace(/\\(.)/g, "$1").trim() || null;
+  // "Proposé par Marignan, mis à jour le ..." (haut de page) puis fallbacks.
+  const promoteur =
+    md.match(/Proposé par\s+([^,\n\]]{2,60}?)\s*,\s*mis à jour/i)?.[1]?.trim() ||
+    md.match(/vous est proposé par\s*\n+\[([^\]]{2,60})\]/i)?.[1]?.trim() ||
+    md.match(/Proposé par\s+([^\n\]]{2,60})/i)?.[1]?.trim() || null;
+  // 1ere ligne "..., 33000 Bordeaux" (sous le titre, repetee dans Le Quartier).
+  const adresse = md.match(/^([^\n#![\]]{3,90},\s*\d{5}\s+[^\n,]{2,40})\s*$/m)?.[1]?.trim() || null;
+  const livraison = md.match(/Livraison\s*\n+\s*([^\n]{3,60})/i)?.[1]?.trim() || null;
+  return { nom, promoteur, adresse, livraison };
+}
+
+// Garde-fou neuf : prix/m² promoteur plausible en France (2 500 - 15 000 €/m²).
+export function isPlausibleNeuf(prix_m2: number | null): boolean {
+  return prix_m2 != null && prix_m2 >= 2500 && prix_m2 <= 15000;
+}
+
+// ----------------------------------------------------------------------------
 // Parsing d'un bloc de texte (markdown) -> champs d'une annonce.
 // ----------------------------------------------------------------------------
 
