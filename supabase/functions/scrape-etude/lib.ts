@@ -513,6 +513,19 @@ export function parseQuartierFromUrl(url: string | null | undefined, ville?: str
   return nom;
 }
 
+// FILTRE QUARTIER (location) : SeLoger Neuf/classified n'a pas de filtre quartier
+// fiable cote URL -> on scrape la ville et on ne garde QUE les annonces dont le
+// quartier deduit (slug d'URL) correspond au quartier demande. Tolerance : le
+// nom du quartier apparait dans le slug d'URL ou le titre normalise.
+export function matchesQuartier(titre: string | null | undefined, url: string | null | undefined, quartier: string | null | undefined): boolean {
+  const q = normLoc(quartier);
+  if (!q) return true; // pas de quartier demande -> tout
+  const ded = parseQuartierFromUrl(url);
+  if (ded && normLoc(ded) === q) return true;
+  const hay = normLoc(`${titre || ""} ${url || ""}`);
+  return hay.includes(q);
+}
+
 // Nettoie une URL capturee depuis le markdown : un lien markdown peut s'ecrire
 // `(url "titre")` -> le groupe capture inclut alors ` "titre"`. Une vraie URL ne
 // contient jamais d'espace brut, donc on coupe au 1er espace (retire le titre et

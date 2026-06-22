@@ -33,6 +33,7 @@ import {
   normLoc,
   parseChargesDetail,
   parseQuartierFromUrl,
+  matchesQuartier,
   parseDpe,
   parseGes,
   synthesizeCharges,
@@ -672,4 +673,14 @@ Deno.test("annonceToRow : quartier deduit de l'URL d'annonce", () => {
   const a: RawAnnonce = { url: "https://www.seloger.com/annonces/locations/appartement/bordeaux-33/chartrons/9.htm", titre: "T2", loyer: 900, surface: 45, pieces: 2 };
   const r = annonceToRow(a, { ...CTX, quartier: null })!;
   assertEquals(r.quartier, "Chartrons");
+});
+
+Deno.test("matchesQuartier : filtre location par quartier (slug URL ou texte)", () => {
+  const u = "https://www.seloger.com/annonces/locations/appartement/asnieres-sur-seine-92/grand-quartier/9.htm";
+  assertEquals(matchesQuartier("T2", u, "Grand Quartier"), true);
+  assertEquals(matchesQuartier("T2", u, "grand-quartier"), true); // tolere le slug
+  assertEquals(matchesQuartier("T2", u, "Bords de Seine"), false); // autre quartier
+  assertEquals(matchesQuartier("Appartement Bords de Seine", "https://x/y/1.htm", "Bords de Seine"), true); // via titre
+  assertEquals(matchesQuartier("T2", u, ""), true); // pas de quartier -> tout
+  assertEquals(matchesQuartier("T2", u, null), true);
 });

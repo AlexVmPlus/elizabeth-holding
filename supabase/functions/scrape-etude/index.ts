@@ -31,6 +31,7 @@ import {
   buildListUrl,
   cutProximity,
   matchesCommune,
+  matchesQuartier,
   detailResult,
   extractCityCode,
   isColocation,
@@ -410,6 +411,12 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   rows = rows.filter((r) => matchesCommune(r.titre, r.url, communeRef));
   const horsCommune = recoltees - rows.length;
   if (horsCommune) console.log(`[start] filtre commune : ${rows.length}/${recoltees} retenues (${horsCommune} hors ${city.nom})`);
+  // Filtre QUARTIER optionnel : ne garde que les annonces du quartier demande.
+  if (quartier) {
+    const av = rows.length;
+    rows = rows.filter((r) => matchesQuartier(r.titre, r.url, quartier));
+    console.log(`[start] filtre quartier "${quartier}" : ${rows.length}/${av}`);
+  }
   rows = applyFilters(rows, !anneeServerSide).slice(0, MAX_ITEMS);
   const partielles = rows.map(toAnnonce);
   console.log(`[start] ${partielles.length} annonces retenues (page 1)`);
@@ -480,6 +487,7 @@ async function handlePage(body: ReqBody, env: Env): Promise<Response> {
   const recoltees = rows.length;
   rows = rows.filter((r) => matchesCommune(r.titre, r.url, communeRef));
   const horsCommune = recoltees - rows.length;
+  if (quartier) rows = rows.filter((r) => matchesQuartier(r.titre, r.url, quartier)); // filtre quartier optionnel
   // annee deja filtree cote serveur (classified) -> applyAnnee=false
   rows = makeFilters(typoFilter, anneeMin, transaction)(rows, false);
   if (horsCommune) console.log(`[page ${page}] filtre commune : ${horsCommune} hors ${ville} ecartees`);
