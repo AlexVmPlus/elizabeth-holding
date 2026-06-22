@@ -668,12 +668,27 @@ var conv=Math.round(m?base*0.85:base*1.15);
 var lbl=m?"non meublé":"meublé";
 var tip="Équivalent "+lbl+" estimé : "+euro(conv)+" €/mois (loyer "+baseLbl+" × "+(m?"0,85":"1,15")+(baseLbl=="CC"?" — conversion sur le loyer CC, charges réelles indisponibles":"")+")";
 return '<span title="'+eaEsc(tip)+'">'+badge+'<div style="color:var(--soft);font-size:11px;margin-top:2px;white-space:nowrap">&asymp; '+euro(conv)+' &euro; '+lbl+'</div></span>'}
+/* loyer non meuble / meuble d'une typo : valeurs observees si dispo, sinon
+   CC pondere pour le non meuble, et CONVERSION SYSTEMATIQUE (x1,15 / /1,15) pour
+   completer la face manquante -> plus de "n/d" en meuble des qu'on a le non
+   meuble (et inversement). nmEst/mEst = true si valeur estimee par conversion. */
+function eaMeubleVals(res,t){
+var lm=res.loyersMeuble,lmT=lm&&(t=="GLOBAL"?lm.global:lm.parTypologie&&lm.parTypologie[t]);
+var cc=(t=="GLOBAL"?res.global:res.parTypologie&&res.parTypologie[t]),ccM2=cc?cc.prix_m2_cc_pondere:null;
+var nm=(lmT&&lmT.non_meuble!=null)?lmT.non_meuble:ccM2,nmEst=!!(lmT&&lmT.non_meuble_source=="estime");
+var m=(lmT&&lmT.meuble!=null)?lmT.meuble:null,mEst=!!(lmT&&lmT.meuble_source=="estime");
+if(m==null&&nm!=null){m=Math.round(nm*1.15*100)/100;mEst=true}
+if(nm==null&&m!=null){nm=Math.round(m/1.15*100)/100;nmEst=true}
+return {nm:nm,nmEst:nmEst,m:m,mEst:mEst}}
 /* synthese double loyer meuble / non meuble (par typologie + global) */
-function eaMeubleTable(res){var lm=res.loyersMeuble;if(!lm||!lm.global)return '';
-var rows='';["T1","T2","T3","T4","T5","T6","autre"].forEach(function(t){var o=lm.parTypologie&&lm.parTypologie[t];if(!o)return;
-rows+='<tr><td><b>'+(t=="autre"?"Autre":t)+'</b></td><td>'+(o.non_meuble!=null?e1(o.non_meuble)+' &euro;/m&sup2; <span style="color:var(--soft);font-size:11px">('+(o.non_meuble_source=="observe"?"observé":"estimé")+')</span>':'-')+'</td><td>'+(o.meuble!=null?e1(o.meuble)+' &euro;/m&sup2; <span style="color:var(--soft);font-size:11px">('+(o.meuble_source=="observe"?"observé":"estimé")+')</span>':'-')+'</td></tr>'});
-var g=lm.global;
-rows+='<tr class="gl"><td><b>Global</b></td><td><b>'+(g.non_meuble!=null?e1(g.non_meuble)+' &euro;/m&sup2;':'-')+'</b> <span style="color:var(--soft);font-size:11px">('+(g.non_meuble_source=="observe"?"observé":"estimé")+')</span></td><td><b>'+(g.meuble!=null?e1(g.meuble)+' &euro;/m&sup2;':'-')+'</b> <span style="color:var(--soft);font-size:11px">('+(g.meuble_source=="observe"?"observé":"estimé")+')</span></td></tr>';
+function eaMeubleTable(res){var lm=res.loyersMeuble;if(!res.global&&!(lm&&lm.global))return '';
+function cell(v,est,bold){var inner=v!=null?(bold?'<b>'+e1(v)+' &euro;/m&sup2;</b>':e1(v)+' &euro;/m&sup2;')+' <span style="color:var(--soft);font-size:11px">('+(est?'estimé':'observé')+')</span>':'-';return inner}
+var rows='';["T1","T2","T3","T4","T5","T6","autre"].forEach(function(t){
+var has=(res.parTypologie&&res.parTypologie[t])||(lm&&lm.parTypologie&&lm.parTypologie[t]);if(!has)return;
+var v=eaMeubleVals(res,t);if(v.nm==null&&v.m==null)return;
+rows+='<tr><td><b>'+(t=="autre"?"Autre":t)+'</b></td><td>'+cell(v.nm,v.nmEst)+'</td><td>'+cell(v.m,v.mEst)+'</td></tr>'});
+var g=eaMeubleVals(res,"GLOBAL");
+rows+='<tr class="gl"><td><b>Global</b></td><td>'+cell(g.nm,g.nmEst,true)+'</td><td>'+cell(g.m,g.mEst,true)+'</td></tr>';
 return '<div class="card" style="padding:18px 22px;margin-bottom:16px"><h3 style="font-size:15px;margin:0 0 10px">Loyers meublé / non meublé <span style="font-weight:400;color:var(--soft);font-size:12px">&middot; pondérés par surface, base loyers CC &middot; estimé = conversion &times;1,15 / &times;0,85</span></h3><div style="overflow-x:auto"><table><thead><tr><th>Typologie</th><th>Non meublé</th><th>Meublé</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'}
 /* banniere de progression / succes au-dessus de la pre-fiche */
 function eaProgress(text,credits){return '<div class="card" id="ea-banner" style="padding:16px 22px;display:flex;align-items:center;gap:14px;margin-bottom:16px"><div class="spinner" style="width:26px;height:26px;border-width:3px;margin:0"></div><div><b>'+eaEsc(text)+'</b>'+(credits!=null?'<div style="color:var(--soft);font-size:13px;margin-top:2px">&#8776; '+credits+' crédits Firecrawl</div>':'')+'</div></div>'}

@@ -290,8 +290,15 @@ export function buildPdf(data: Any, photo: { b64: string; fmt: "JPEG" | "PNG" } 
     const n2: Any = nf && (t === "GLOBAL" ? nf.global : nf.parTypologie && nf.parTypologie[t]);
     const lmT: Any = lm && (t === "GLOBAL" ? lm.global : lm.parTypologie && lm.parTypologie[t]);
     if (!l && !n2) continue;
-    const vNM = lmT ? lmT.non_meuble : (l ? l.prix_m2_cc_pondere : null);
-    const vM = lmT ? lmT.meuble : null;
+    // Non meuble = observe si dispo, sinon CC pondere. Meuble = observe si dispo,
+    // sinon CONVERSION x1,15 (et inversement /1,15) -> jamais "n/d" en meuble des
+    // qu'on a le non meuble. nmEst/mEst marquent l'estimation par conversion (*).
+    let vNM: number | null = (lmT && lmT.non_meuble != null) ? lmT.non_meuble : (l ? l.prix_m2_cc_pondere : null);
+    let vM: number | null = (lmT && lmT.meuble != null) ? lmT.meuble : null;
+    let nmEst = !!(lmT && lmT.non_meuble_source === "estime");
+    let mEst = !!(lmT && lmT.meuble_source === "estime");
+    if (vM == null && vNM != null) { vM = vNM * 1.15; mEst = true; }
+    if (vNM == null && vM != null) { vNM = vM / 1.15; nmEst = true; }
     const vN = n2 ? n2.prix_m2_cc_pondere : null;
     const r = (vNM != null && vN) ? vNM * 12 / vN * 100 : null;
     const mens = (vNM != null && l && l.surface_moyenne) ? Math.round(vNM * l.surface_moyenne) : null;
@@ -299,8 +306,8 @@ export function buildPdf(data: Any, photo: { b64: string; fmt: "JPEG" | "PNG" } 
     doc.setFont("helvetica", bold ? "bold" : "normal");
     doc.setFontSize(7.6);
     doc.text(t === "GLOBAL" ? "Global" : t, dx[0], y);
-    doc.text(vNM != null ? e1(vNM) + " €/m²" + (lmT && lmT.non_meuble_source === "estime" ? "*" : "") : "n/d", dx[1], y);
-    doc.text(vM != null ? e1(vM) + " €/m²" + (lmT && lmT.meuble_source === "estime" ? "*" : "") : "n/d", dx[2], y);
+    doc.text(vNM != null ? e1(vNM) + " €/m²" + (nmEst ? "*" : "") : "n/d", dx[1], y);
+    doc.text(vM != null ? e1(vM) + " €/m²" + (mEst ? "*" : "") : "n/d", dx[2], y);
     doc.text(mens != null ? eu(mens) + " €" : "n/d", dx[3], y);
     doc.text(vN != null ? eu(vN) + " €" : "n/d", dx[4], y);
     if (r != null) {
