@@ -1023,6 +1023,23 @@ meuble:wM?Math.round(sM/wM*100)/100:null,meuble_source:oM>0?"observe":"estime",n
 var groups={};rows.forEach(function(r){var t=r.typologie||"autre";(groups[t]=groups[t]||[]).push(r)});
 var pt={};["T1","T2","T3","T4","T5","T6","autre"].forEach(function(t){if(groups[t])pt[t]=calc(groups[t])});
 return {parTypologie:pt,global:calc(rows),base:"CC",coefMeuble:1.15}}
+/* APERCU HISTORIQUE meuble/non meuble (autonome, robuste) :
+   - non meuble = moyenne ponderee par surface des prix_m2_cc ou meuble !== true
+     (false / null / undefined comptent comme non meuble) ;
+   - meuble = moyenne ponderee des annonces meuble === true, sinon non meuble x1,15 (*) ;
+   - poids = surface si >0 sinon 1 ; Number() pour les valeurs venant de l'API ;
+   - null seulement si AUCUN prix_m2_cc exploitable. */
+function eaHistMeubleVals(rows){
+var sNM=0,wNM=0,sM=0,wM=0,nM=0,any=false;
+(rows||[]).forEach(function(r){if(!r)return;var p=Number(r.prix_m2_cc);if(!isFinite(p)||p<=0)return;any=true;
+var su=Number(r.surface),w=(isFinite(su)&&su>0)?su:1;
+if(r.meuble===true){sM+=p*w;wM+=w;nM++}else{sNM+=p*w;wNM+=w}});
+if(!any)return {nm:null,m:null,nmEst:false,mEst:false};
+var nm=wNM?Math.round(sNM/wNM*100)/100:null;
+var m=wM?Math.round(sM/wM*100)/100:null,mEst=false,nmEst=false;
+if(m==null&&nm!=null){m=Math.round(nm*1.15*100)/100;mEst=true}
+if(nm==null&&m!=null){nm=Math.round(m/1.15*100)/100;nmEst=true}
+return {nm:nm,nmEst:nmEst,m:m,mEst:mEst}}
 /* synthese charges/HC/DPE cote front (reouverture historique, 0 credit) */
 function eaSynthChargesFront(rows){
 var gCh=0,gSurf=0,gReel=0;rows.forEach(function(r){if(r.charges!=null&&r.surface>0&&(r.loyer_cc==null||r.charges<r.loyer_cc)){gCh+=r.charges;gSurf+=r.surface;gReel++}});
@@ -1066,11 +1083,9 @@ res[1].forEach(function(r){var k=gkey(r);(groups[k]=groups[k]||{loc:[],neuf:[]})
 var list=Object.keys(groups).map(function(k){var g=groups[k];
 var loc=eaHistDedup(g.loc);
 var locRows=loc.filter(function(r){return r.transaction!="vente"});
-/* apercu meuble/non meuble : MEME logique que la pre-fiche (eaMeubleVals) ->
-   CC pondere par surface + conversion x1,15, pour coller au detail a la reouverture */
-var mv={nm:null,m:null,nmEst:false,mEst:false};
-if(locRows.length){var sy=eaSynthLoc(locRows,"location");
-mv=eaMeubleVals({parTypologie:sy.parTypologie,global:sy.global,loyersMeuble:eaSynthMeubleFront(locRows)},"GLOBAL")}
+/* apercu meuble/non meuble : robuste (meuble!==true compte en non meuble ->
+   marche meme quand meuble est null partout, ex anciennes etudes) */
+var mv=eaHistMeubleVals(locRows);
 var nfS=g.neuf.length?eaSynthNeufFront(g.neuf):null;
 var ts="",ville="",eid=null;loc.concat(g.neuf).forEach(function(r){if(r.scraped_at>ts)ts=r.scraped_at;if(!ville&&r.ville)ville=r.ville;if(!eid&&r.etude_id)eid=r.etude_id});
 var typos={};loc.forEach(function(r){if(r.typologie)typos[r.typologie]=1});
