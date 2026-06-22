@@ -1065,19 +1065,23 @@ res[1].forEach(function(r){var k=gkey(r);(groups[k]=groups[k]||{loc:[],neuf:[]})
 var list=Object.keys(groups).map(function(k){var g=groups[k];
 var loc=eaHistDedup(g.loc);
 var locRows=loc.filter(function(r){return r.transaction!="vente"});
-var lm=locRows.length?eaSynthMeubleFront(locRows):null;
+/* apercu meuble/non meuble : MEME logique que la pre-fiche (eaMeubleVals) ->
+   CC pondere par surface + conversion x1,15, pour coller au detail a la reouverture */
+var mv={nm:null,m:null,nmEst:false,mEst:false};
+if(locRows.length){var sy=eaSynthLoc(locRows,"location");
+mv=eaMeubleVals({parTypologie:sy.parTypologie,global:sy.global,loyersMeuble:eaSynthMeubleFront(locRows)},"GLOBAL")}
 var nfS=g.neuf.length?eaSynthNeufFront(g.neuf):null;
 var ts="",ville="",eid=null;loc.concat(g.neuf).forEach(function(r){if(r.scraped_at>ts)ts=r.scraped_at;if(!ville&&r.ville)ville=r.ville;if(!eid&&r.etude_id)eid=r.etude_id});
 var typos={};loc.forEach(function(r){if(r.typologie)typos[r.typologie]=1});
 var manuel=loc.length>0&&loc.every(function(r){return r.source=="manuel"})&&!g.neuf.length;
 return {ville:ville,etudeId:eid,ts:ts,loc:loc,neuf:g.neuf,manuel:manuel,typos:Object.keys(typos).sort(),
-m:lm&&lm.global?lm.global.meuble:null,nm:lm&&lm.global?lm.global.non_meuble:null,
+m:mv.m,nm:mv.nm,mEst:mv.mEst,nmEst:mv.nmEst,
 neufM2:nfS&&nfS.global?nfS.global.prix_m2_cc_pondere:null}})
 .sort(function(a,b){return a.ts<b.ts?1:-1});
 eaHistGroups=list;
 if(!list.length){z.innerHTML='<div class="card" style="padding:28px;text-align:center;color:var(--soft)">Aucune étude en base pour le moment. Lancez une étude depuis l\'onglet «&nbsp;Étude auto&nbsp;».</div>';return}
 var nd='<span style="color:var(--soft)">&mdash;</span>';
-var body=list.map(function(g,i){return '<tr class="ea-rowlink" data-i="'+i+'" style="cursor:pointer'+(g.manuel?';background:#FFF7ED':'')+'"><td><b>'+eaEsc(g.ville)+'</b>'+(g.manuel?' <span class="ea-pill" style="background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;margin-left:6px">manuel</span>':'')+(g.typos.length?' <span style="color:var(--soft);font-size:12px">&middot; '+g.typos.join(", ")+'</span>':'')+'</td><td>'+eaDate(g.ts)+'</td><td>'+(g.m!=null?e1(g.m)+' &euro;/m&sup2;':nd)+'</td><td>'+(g.nm!=null?e1(g.nm)+' &euro;/m&sup2;':nd)+'</td><td>'+(g.neufM2!=null?euro(Math.round(g.neufM2))+' &euro;/m&sup2;':nd)+'</td><td style="color:var(--soft);font-size:12px">'+(g.loc.length?g.loc.length+' annonce'+(g.loc.length>1?'s':''):'')+(g.loc.length&&g.neuf.length?' &middot; ':'')+(g.neuf.length?g.neuf.length+' lots neufs':'')+'</td></tr>'}).join("");
+var body=list.map(function(g,i){return '<tr class="ea-rowlink" data-i="'+i+'" style="cursor:pointer'+(g.manuel?';background:#FFF7ED':'')+'"><td><b>'+eaEsc(g.ville)+'</b>'+(g.manuel?' <span class="ea-pill" style="background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;margin-left:6px">manuel</span>':'')+(g.typos.length?' <span style="color:var(--soft);font-size:12px">&middot; '+g.typos.join(", ")+'</span>':'')+'</td><td>'+eaDate(g.ts)+'</td><td>'+(g.m!=null?e1(g.m)+(g.mEst?'*':'')+' &euro;/m&sup2;':nd)+'</td><td>'+(g.nm!=null?e1(g.nm)+(g.nmEst?'*':'')+' &euro;/m&sup2;':nd)+'</td><td>'+(g.neufM2!=null?euro(Math.round(g.neufM2))+' &euro;/m&sup2;':nd)+'</td><td style="color:var(--soft);font-size:12px">'+(g.loc.length?g.loc.length+' annonce'+(g.loc.length>1?'s':''):'')+(g.loc.length&&g.neuf.length?' &middot; ':'')+(g.neuf.length?g.neuf.length+' lots neufs':'')+'</td></tr>'}).join("");
 z.innerHTML='<div class="card"><div class="dl" style="margin-top:0;padding:18px"><div style="overflow-x:auto;border:1px solid var(--line);border-radius:12px"><table><thead>'
 +'<tr><th rowspan="2" style="vertical-align:bottom">Ville</th><th rowspan="2" style="vertical-align:bottom">Date</th><th colspan="2" style="text-align:center;border-bottom:2px solid #185FA5;color:#185FA5">Location</th><th style="text-align:center;border-bottom:2px solid #0F6E56;color:#0F6E56">Vente</th><th rowspan="2"></th></tr>'
 +'<tr><th>Loyer/m&sup2; meublé</th><th>Loyer/m&sup2; non meublé</th><th>Prix neuf/m&sup2;</th></tr>'
