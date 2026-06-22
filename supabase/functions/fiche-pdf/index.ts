@@ -122,8 +122,12 @@ export function buildPdf(data: Any, photo: { b64: string; fmt: "JPEG" | "PNG" } 
 
   // ---------- agregats ----------
   const lG: Any = loc && loc.global, nG: Any = nf && nf.global;
-  const loyerNM = lm && lm.global ? lm.global.non_meuble : (lG ? lG.prix_m2_cc_pondere : null);
-  const loyerM = lm && lm.global ? lm.global.meuble : null;
+  let loyerNM = (lm && lm.global && lm.global.non_meuble != null) ? lm.global.non_meuble : (lG ? lG.prix_m2_cc_pondere : null);
+  let loyerM = (lm && lm.global && lm.global.meuble != null) ? lm.global.meuble : null;
+  let loyerMEst = !!(lm && lm.global && lm.global.meuble_source === "estime");
+  // conversion systematique (comme le site) : pas de "n/d" en meuble si non meuble connu
+  if (loyerM == null && loyerNM != null) { loyerM = loyerNM * 1.15; loyerMEst = true; }
+  if (loyerNM == null && loyerM != null) loyerNM = loyerM / 1.15;
   const prixM2 = nG ? nG.prix_m2_cc_pondere : null;
   const rdt = (loyerNM != null && prixM2) ? loyerNM * 12 / prixM2 * 100 : null;
   const lots: Any[] = (nf && nf.annonces) || [];
@@ -196,7 +200,7 @@ export function buildPdf(data: Any, photo: { b64: string; fmt: "JPEG" | "PNG" } 
   };
   const k1: Array<[string, string, string]> = [
     [loyerNM != null ? e1(loyerNM) + " €/m²" : "n/d", "LOYER NON MEUBLÉ (CC)", BLEU],
-    [loyerM != null ? e1(loyerM) + " €/m²" : "n/d", "LOYER MEUBLÉ (CC)", BLEU],
+    [loyerM != null ? e1(loyerM) + " €/m²" + (loyerMEst ? "*" : "") : "n/d", "LOYER MEUBLÉ (CC)", BLEU],
     [prixM2 != null ? eu(prixM2) + " €/m²" : "n/d", "PRIX NEUF MOYEN", BLEU],
     [rdt != null ? e1(rdt) + " %" : "n/d", "RENDEMENT BRUT MOYEN", VERT],
   ];

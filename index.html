@@ -181,7 +181,7 @@ tr.ea-rowlink{cursor:pointer}tr.ea-rowlink:hover td{background:var(--bsoft)}.ea-
 <div class="st" style="text-align:left"><div class="k">Étude de marché automatique</div><h2 style="margin-top:6px">Générez une étude en temps réel</h2><p style="margin-left:0">Générez une étude de marché automatique à partir des annonces SeLoger en temps réel. Indiquez une ville, le scraping et l'analyse sont automatiques.</p></div>
 <div class="fc" style="max-width:700px">
 <h3>Paramètres de l'étude</h3><p class="hint">Ville (ou arrondissement, ex. « Paris 8 ») obligatoire. Choisissez le type de transaction puis lancez l'analyse.</p>
-<div class="g2"><div class="fld" id="ea-vwrap" style="position:relative"><label>Ville *</label><input id="ea-ville" placeholder="ex. Bordeaux, Paris 8, 75008..." autocomplete="off"><div class="sugg" id="ea-vsg" style="top:calc(100% + 4px)"></div></div><div class="fld"><label>Quartier (optionnel)</label><input id="ea-quartier" list="ea-qdl" placeholder="ex. Saint-Jean-Belcier" autocomplete="off"><datalist id="ea-qdl"></datalist><span class="hint" style="display:block;margin-top:4px">Location filtrée sur ce quartier ; le neuf reste sur toute la ville.</span></div></div>
+<div class="g2"><div class="fld" id="ea-vwrap" style="position:relative"><label>Ville *</label><input id="ea-ville" placeholder="ex. Bordeaux, Paris 8, 75008..." autocomplete="off"><div class="sugg" id="ea-vsg" style="top:calc(100% + 4px)"></div></div><div class="fld"><label>Quartier (optionnel)</label><input id="ea-quartier" list="ea-qdl" placeholder="ex. Saint-Jean-Belcier" autocomplete="off"><datalist id="ea-qdl"></datalist><span class="hint" style="display:block;margin-top:4px">Location filtrée sur ce quartier ; le neuf reste sur toute la ville.</span><span id="ea-q-status" class="hint" style="display:block;margin-top:2px;color:var(--blue)"></span></div></div>
 <div class="fld"><label>Transaction</label><select id="ea-transaction"><option value="location">Location</option><option value="vente_neuf">Vente (Neuf)</option><option value="complete">Étude complète (Location + Achat neuf)</option></select><span class="hint" style="display:block;margin-top:4px" id="ea-trhint">Vente (Neuf) = programmes promoteurs SeLoger Neuf. Étude complète = location PUIS achat neuf, avec fiche PDF combinée (rendement).</span></div>
 <div class="gt" style="margin-top:18px">Filtres (optionnels)</div>
 <div class="g2"><div class="fld"><label>Typologies (plusieurs possibles)</label><div id="ea-typos" style="display:flex;flex-wrap:wrap;gap:6px;padding:4px 0"><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T1" style="accent-color:var(--blue);margin:0">Studio/T1</label><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T2" style="accent-color:var(--blue);margin:0">T2</label><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T3" style="accent-color:var(--blue);margin:0">T3</label><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T4" style="accent-color:var(--blue);margin:0">T4</label><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T5" style="accent-color:var(--blue);margin:0">T5</label><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T6" style="accent-color:var(--blue);margin:0">T6</label></div><span class="hint" style="display:block;margin-top:2px">Aucune coche = toutes les typologies</span></div><div class="fld" id="ea-anneewrap"><label>Année de construction min</label><input id="ea-annee" type="number" min="1900" max="2030" placeholder="ex. 2020, 2025..."><span class="hint" style="display:block;margin-top:4px">Vrai filtre SeLoger : ne garde que les biens construits &ge; cette année</span></div></div>
@@ -980,13 +980,30 @@ function eaVrender(){if(!eaVM.length){eaVsg.classList.remove("show");eaVsg.inner
 eaVsg.innerHTML=eaVM.map(function(c,i){return '<div class="sug'+(i==eaVai?" active":"")+'" data-i="'+i+'"><span class="tag ville">ville</span><span>'+eaEsc(c.nom)+(c.cp?' <span style="color:var(--soft)">('+eaEsc(c.cp)+')</span>':'')+'</span></div>'}).join("");
 eaVsg.classList.add("show");[].forEach.call(eaVsg.querySelectorAll(".sug"),function(el){el.onclick=function(){eaVpick(eaVM[+el.dataset.i])}})}
 function eaVpick(c){eaV.value=c.nom;eaVM=[];eaVrender();eaLoadQuartiers(c.nom)}
-/* peuple la liste deroulante quartier avec les quartiers deja connus en base
-   pour cette ville (deduits des etudes precedentes). Texte libre reste possible. */
+/* peuple la liste deroulante des quartiers REELS de la ville. Source principale :
+   autocomplete SeLoger (Meta.Quartiers, CORS ouvert) ; complete par les quartiers
+   deja connus en base (etudes precedentes). Les noms SeLoger correspondent aux
+   slugs d'URL d'annonces -> le filtre quartier (matchesQuartier) les reconnait.
+   Texte libre reste possible. */
+var eaQCache={};
+function eaQStatus(msg){var el=document.getElementById("ea-q-status");if(el)el.textContent=msg||""}
 function eaLoadQuartiers(ville){var dl=document.getElementById("ea-qdl");if(!dl||!ville)return;
+ville=ville.trim();if(!ville)return;
+if(eaQCache[ville.toLowerCase()]){eaFillQuartiers(eaQCache[ville.toLowerCase()]);return}
+eaQStatus("Recherche des quartiers…");
 var h={apikey:EA_KEY,Authorization:"Bearer "+EA_KEY};
-fetch(EA_SUPA+"/etudes_marche?ville=eq."+encodeURIComponent(ville)+"&transaction=eq.location&select=quartier&limit=4000",{headers:h})
-.then(function(r){return r.ok?r.json():[]}).then(function(rows){var set={};(rows||[]).forEach(function(r){var q=(r.quartier||"").trim();if(q)set[q]=1});
-dl.innerHTML=Object.keys(set).sort().map(function(q){return '<option value="'+eaEsc(q)+'"></option>'}).join("")}).catch(function(){})}
+var seloger=fetch("https://autocomplete.svc.groupe-seloger.com/api/v2.0/auto/complete/fra/63/10/8/SeLoger?text="+encodeURIComponent(ville))
+.then(function(r){return r.ok?r.json():[]}).then(function(arr){
+var key=ville.toLowerCase();
+var v=(arr||[]).find(function(x){return x&&x.Type=="Ville"&&String(x.Tag||"").toLowerCase()==key})||(arr||[]).find(function(x){return x&&x.Type=="Ville"});
+var qs=(v&&v.Meta&&v.Meta.Quartiers)||[];return qs.map(function(q){return String(q.Name||"").trim()}).filter(Boolean)}).catch(function(){return[]});
+var base=fetch(EA_SUPA+"/etudes_marche?ville=eq."+encodeURIComponent(ville)+"&transaction=eq.location&select=quartier&limit=4000",{headers:h})
+.then(function(r){return r.ok?r.json():[]}).then(function(rows){return (rows||[]).map(function(r){return (r.quartier||"").trim()}).filter(Boolean)}).catch(function(){return[]});
+Promise.all([seloger,base]).then(function(res){var set={};res[0].concat(res[1]).forEach(function(q){if(q)set[q]=1});
+var list=Object.keys(set).sort(function(a,b){return a.localeCompare(b)});
+eaQCache[ville.toLowerCase()]=list;eaFillQuartiers(list)})}
+function eaFillQuartiers(list){var dl=document.getElementById("ea-qdl");if(dl)dl.innerHTML=(list||[]).map(function(q){return '<option value="'+eaEsc(q)+'"></option>'}).join("");
+eaQStatus(list&&list.length?(list.length+" quartiers proposés (laisser vide = toute la ville)"):"Aucun quartier connu pour cette ville — l'étude portera sur toute la ville.")}
 function eaVshow(){var t=eaV.value.trim();
 if(t.length<3||/\d/.test(t)){eaVM=[];eaVrender();return} /* "Paris 8"/"75008" = arrondissement, pas d autocomplete */
 clearTimeout(eaVtimer);
