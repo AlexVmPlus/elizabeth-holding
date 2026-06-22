@@ -336,9 +336,12 @@ studiesLayer=layer;map.addLayer(layer)})})}
 
 /* ====== PANNEAU STATS ====== */
 function emptyPanel(){return '<div class="pe"><div class="big">&#128205;</div><p>Cliquez sur une ville de la carte ou cherchez un lieu pour afficher les prix au m2 (vente et location).</p></div>'}
-function cmpRow(label,val,ref,unit){if(val==null)return '<div class="cr"><span>'+label+'</span><span class="bd eq">n/d</span></div>';
-var dp=ref?((val-ref)/ref*100):0,b=Math.abs(dp)<3?"eq":(dp>0?"hi":"lo"),lb=ref?(Math.abs(dp)<3?"= moy.":(dp>0?"+"+dp.toFixed(0)+"%":dp.toFixed(0)+"%")):"";
-return '<div class="cr"><span>'+label+'</span><span><span class="v">'+val+' '+unit+'</span> <span class="bd '+b+'">'+lb+'</span></span></div>'}
+/* val = nombre BRUT (pour le calcul %), disp = chaine deja formatee (affichage) */
+function cmpRow(label,val,ref,unit,disp){if(val==null||!isFinite(val))return '<div class="cr"><span>'+label+'</span><span class="bd eq">n/d</span></div>';
+var dp=(ref&&isFinite(ref))?((val-ref)/ref*100):null;
+var b=(dp==null)?"eq":(Math.abs(dp)<3?"eq":(dp>0?"hi":"lo"));
+var lb=(dp==null||!isFinite(dp))?"&mdash;":(Math.abs(dp)<3?"= moy.":(dp>0?"+"+dp.toFixed(0)+"%":dp.toFixed(0)+"%"));
+return '<div class="cr"><span>'+label+'</span><span><span class="v">'+(disp!=null?disp:val)+' '+unit+'</span> <span class="bd '+b+'">'+lb+'</span></span></div>'}
 function showPanel(o,kind){var p=document.getElementById("panel");
 var pv=o.prix_vente_m2,lo=o.loyer_m2,nb=o.nb_programmes;
 var venteHtml=pv?'<div class="v">'+euro(pv)+'</div><div class="u">&euro;/m2</div>':'<div class="nd">non disponible</div>';
@@ -347,7 +350,7 @@ var sub=kind=="ville"?(o.nb_quartiers>1?o.nb_quartiers+" quartiers &middot; ":""
 var html='<div class="card" id="rc"><div class="ch"><div class="k">'+(kind=="ville"?"Ville":"Quartier")+'</div><h2>'+(kind=="ville"?o.ville:o.quartier)+'</h2><div class="s">'+sub+'</div></div>'+
 '<div class="kpis"><div class="kpi vente"><div class="t">Prix de vente</div>'+venteHtml+'</div><div class="kpi loyer"><div class="t">Loyer</div>'+loyerHtml+'</div></div>'+
 '<div class="cmp"><h4>Comparaison avec la moyenne générale</h4>'+
-cmpRow("Vente / m2",pv?euro(pv):null,GAVG.pv,"&euro;")+cmpRow("Loyer / m2",lo?e1(lo):null,GAVG.lo,"&euro;")+'</div>';
+cmpRow("Vente / m2",pv!=null?pv:null,GAVG.pv,"&euro;",pv!=null?euro(pv):null)+cmpRow("Loyer / m2",lo!=null?lo:null,GAVG.lo,"&euro;",lo!=null?e1(lo):null)+'</div>';
 if(kind=="ville"){var progs=DB.programmes.filter(function(x){return x.v==o.ville}).slice(0,8);
 html+='<div class="proglist"><h4>Programmes ('+DB.programmes.filter(function(x){return x.v==o.ville}).length+')</h4>'+progs.map(function(x){return '<div class="pi"><b>'+(x.pg||x.pr||"Programme")+'</b><div class="meta">'+(x.pr||"")+(x.pv?" &middot; vente "+euro(x.pv)+" &euro;/m2":"")+((x.l1||x.l3)?" &middot; loyer "+e1(((x.l1||0)+(x.l3||0))/((x.l1?1:0)+(x.l3?1:0)))+" &euro;/m2":"")+'</div></div>'}).join("")+'</div>'}
 html+='</div>';p.innerHTML=html;anim()}
@@ -478,6 +481,37 @@ var u=EA_SUPA+"/etudes_marche?ville=eq."+encodeURIComponent(ville)+"&transaction
 return fetch(u,{headers:h}).then(function(r){return r.ok?r.json():[]}).then(function(rows){var m={};
 (rows||[]).forEach(function(row){if(!row.url)return;if(row.charges==null&&!row.dpe&&!row.ges)return;var k=eaUrlKey(row);if(!m[k])m[k]={charges:row.charges,dpe:row.dpe,ges:row.ges}});
 return m}).catch(function(){return {}})}
+/* cout estime du scrape detail (avant clic) : <= EA_DETAIL_MAX annonces utiles */
+function eaDetailCost(loc){var n=(loc&&loc.annonces)?loc.annonces.filter(function(a){return a&&a.url}).length:0;return Math.min(EA_DETAIL_MAX,n)}
+/* SCRAPE DETAIL A LA DEMANDE (charges/HC/DPE) sur une etude location deja faite.
+   cache 30j (0 credit) + echantillon <=EA_DETAIL_MAX non cache + proxy basic->auto
+   serveur, puis finalize (stocke -> cache futur, renvoie la synthese charges).
+   Renvoie le resultat location ENRICHI (_detailDone=true). */
+function eaRunDetail(loc){
+var all=(loc.annonces||[]).slice(),credits=0;
+return eaDetailCache(loc.ville).then(function(cache){
+var nbCache=0;
+all.forEach(function(a){var c=cache[eaUrlKey(a)];if(!c)return;
+if(c.charges!=null){a.charges=c.charges;
+if(a.loyer_cc!=null&&a.surface>0&&c.charges<a.loyer_cc){a.loyer_hc=Math.round(a.loyer_cc-c.charges);a.prix_m2_hc=Math.round(a.loyer_hc/a.surface*100)/100}}
+if(c.dpe)a.dpe=c.dpe;if(c.ges)a.ges=c.ges;a._cached=true;nbCache++});
+var sample=eaPickSample(all.filter(function(a){return !a._cached}),EA_DETAIL_MAX),bi=0;
+function done(){
+eaResult.innerHTML=eaProgress("Synthèse charges + DPE… ("+all.length+" annonces)",credits);
+return eaApi({phase:"finalize",ville:loc.ville,transaction:"location",annonces:all.slice(0,EA_MAX),credits:(loc.creditsEstimes||0)+credits})
+.then(function(fin){fin.recoltees=loc.recoltees;fin.horsCommune=loc.horsCommune;fin._detailDone=true;fin.detailCredits=credits;if(loc.note&&!fin.note)fin.note=loc.note;return fin})}
+function step(){
+if(bi>=sample.length)return done();
+var batch=sample.slice(bi,bi+EA_DETAIL_BATCH);bi+=batch.length;
+eaResult.innerHTML=eaProgress("Charges + DPE : "+Math.min(bi,sample.length)+"/"+sample.length+(nbCache?" &middot; "+nbCache+" en cache":"")+"… (≈ "+credits+" crédits)",credits);
+return eaApi({phase:"loc-detail",items:batch.map(function(a){return {url:a.url,loyer_cc:a.loyer_cc,surface:a.surface}})})
+.then(function(r){credits+=(r.creditsEstimes||batch.length);
+(r.results||[]).forEach(function(d){for(var x=0;x<all.length;x++){if(all[x].url===d.url){var a=all[x];
+if(d.charges!=null){a.charges=d.charges;a.loyer_hc=d.loyer_hc;a.prix_m2_hc=d.prix_m2_hc}
+if(d.dpe)a.dpe=d.dpe;if(d.ges)a.ges=d.ges;break}}});
+return step()})
+.catch(function(e){console.warn("etude-auto: lot détail en échec, on continue",e);return step()})}
+return step()})}
 var eaFD=null; /* etat fiche : {res, insee, ratio, ref, _stats} */
 function eaNc(){return '<div class="v nc">n.c.</div>'}
 /* population live (geo.api) + socio-eco (table insee_communes), tolerant */
@@ -552,7 +586,7 @@ cmp='<div class="ea-sec"><h3><span class="ic">&#127919;</span> Comparaison au ma
 var foot='<div class="ea-sec"><div class="ea-note">Étude générée le '+eaDate(res.scrapedAt)+' par <b>Elizabeth Holding</b> &middot; Loyers : annonces SeLoger pondérées par surface &middot; Charges estimées &middot; Données commune : INSEE. Document indicatif, non contractuel.</div></div>';
 fd._stats=stats;
 var cg=res.charges&&res.charges.global;
-var chargesBlk=(!vente&&cg)?'<div class="ea-sec"><h3><span class="ic">&#128176;</span> Charges &amp; DPE (échantillon détaillé)</h3><div class="ea-note">Charges relevées sur <b>'+(res.charges.nb_charges_reelles||0)+'/'+(res.charges.nb_total||0)+'</b> annonces de l\'échantillon'+(cg.charges_m2_moyen!=null?' &middot; charges moyennes <b>'+e1(cg.charges_m2_moyen)+' &euro;/m&sup2;/mois</b>':'')+(cg.loyer_hc_m2_pondere!=null?' &middot; loyer HC moyen <b>'+e1(cg.loyer_hc_m2_pondere)+' &euro;/m&sup2;/mois</b>':'')+(res.dpeFrequent?' &middot; DPE le plus fréquent <span class="ea-pill">'+eaEsc(res.dpeFrequent)+'</span>':'')+'. Le curseur « charges estimées » ci-dessus est initialisé sur la moyenne relevée ; les annonces sans montant sont estimées via ce ratio.</div></div>':'';
+var chargesBlk=(!vente&&cg&&(res.charges.nb_charges_reelles||0)>0)?'<div class="ea-sec"><h3><span class="ic">&#128176;</span> Charges &amp; DPE (échantillon détaillé)</h3><div class="ea-note">Charges relevées sur <b>'+(res.charges.nb_charges_reelles||0)+'/'+(res.charges.nb_total||0)+'</b> annonces de l\'échantillon'+(cg.charges_m2_moyen!=null?' &middot; charges moyennes <b>'+e1(cg.charges_m2_moyen)+' &euro;/m&sup2;/mois</b>':'')+(cg.loyer_hc_m2_pondere!=null?' &middot; loyer HC moyen <b>'+e1(cg.loyer_hc_m2_pondere)+' &euro;/m&sup2;/mois</b>':'')+(res.dpeFrequent?' &middot; DPE le plus fréquent <span class="ea-pill">'+eaEsc(res.dpeFrequent)+'</span>':'')+'. Le curseur « charges estimées » ci-dessus est initialisé sur la moyenne relevée ; les annonces sans montant sont estimées via ce ratio.</div></div>':'';
 return '<div class="card ea-fichedoc" id="ea-fichedoc">'+head+tool+loyers+chargesBlk+inseeBlk+cmp+foot+'</div>'}
 /* genere la fiche complete (fetch INSEE puis rendu anime) */
 function eaGenerateFiche(res){var z=document.getElementById("ea-fiche-zone");if(!z)return;
@@ -582,7 +616,7 @@ return '<tr'+(u?' class="ea-rowlink" data-url="'+u+'"':'')+'><td><b>'+eaEsc(a.ty
 '<td>'+eaPrix(a.prix_m2_cc,j.transaction)+'</td>'+
 '<td>'+eaPrix(a.prix_m2_hc,j.transaction)+'</td>'+
 '<td>'+(vente?nd:eaMeubleBadge(a))+'</td>'+
-'<td>'+(a.dpe?'<span class="ea-pill">'+eaEsc(a.dpe)+'</span>':nd)+'</td>'+
+'<td>'+(function(){var d=a.dpe&&/^[A-G]$/i.test(String(a.dpe).trim())?String(a.dpe).trim().toUpperCase():null;return d?'<span class="ea-pill">'+d+'</span>':nd})()+'</td>'+
 '<td>'+eaEsc(eaFmtQuartier(a.quartier))+'</td>'+
 '<td>'+(u?'<a href="'+u+'" target="_blank" rel="noopener" class="ea-link">Voir &rarr;</a>':"-")+'</td></tr>'}).join("");
 var cP=vente?"Prix":"Loyer CC",cC=vente?"&mdash;":"Charges",cH=vente?"&mdash;":"Loyer HC";
@@ -594,7 +628,7 @@ var filtreLine=notes.length?'<div style="padding:0 24px 6px;color:var(--soft);fo
 if(j.note)filtreLine+='<div style="padding:0 24px 6px;color:#9a6700;font-size:13px">&#9888;&#65039; '+eaEsc(j.note)+'</div>';
 var communeLine=(j.horsCommune||j.recoltees)?'<div style="padding:8px 24px 2px;color:'+((j.horsCommune||0)>0?"#0a7a30":"var(--soft)")+';font-size:13px;font-weight:600">&#128205; '+nb+' annonce'+(nb>1?'s':'')+' retenue'+(nb>1?'s':'')+(j.recoltees?' sur '+j.recoltees+' récupérée'+(j.recoltees>1?'s':''):'')+' après filtre commune ('+eaEsc(j.ville)+')'+((j.horsCommune||0)>0?' &middot; '+j.horsCommune+' hors commune écartée'+(j.horsCommune>1?'s':''):'')+'</div>':'';
 var cg=j.charges&&j.charges.global;
-var chargesLine=(!vente&&cg)?'<div style="padding:2px 24px 6px;color:var(--soft);font-size:13px">&#128176; Charges relevées sur '+(j.charges.nb_charges_reelles||0)+'/'+(j.charges.nb_total||0)+' annonces'+(cg.charges_m2_moyen!=null?' &middot; moy. '+e1(cg.charges_m2_moyen)+' &euro;/m&sup2;/mois':'')+(cg.loyer_hc_m2_pondere!=null?' &middot; loyer HC moyen '+e1(cg.loyer_hc_m2_pondere)+' &euro;/m&sup2;':'')+(j.dpeFrequent?' &middot; DPE le plus fréquent : <b>'+eaEsc(j.dpeFrequent)+'</b>':'')+'</div>':'';
+var chargesLine=(!vente&&cg&&(j.charges.nb_charges_reelles||0)>0)?'<div style="padding:2px 24px 6px;color:var(--soft);font-size:13px">&#128176; Charges relevées sur '+(j.charges.nb_charges_reelles||0)+'/'+(j.charges.nb_total||0)+' annonces'+(cg.charges_m2_moyen!=null?' &middot; moy. '+e1(cg.charges_m2_moyen)+' &euro;/m&sup2;/mois':'')+(cg.loyer_hc_m2_pondere!=null?' &middot; loyer HC moyen '+e1(cg.loyer_hc_m2_pondere)+' &euro;/m&sup2;':'')+(j.dpeFrequent?' &middot; DPE le plus fréquent : <b>'+eaEsc(j.dpeFrequent)+'</b>':'')+'</div>':'';
 var foot='<div style="padding:6px 24px 18px;color:var(--soft);font-size:13px">Source : SeLoger &middot; vue de vérification brute (chaque ligne ouvre l\'annonce). '+(j.inserted!=null?j.inserted+' annonce'+(j.inserted>1?'s':'')+' enregistrée'+(j.inserted>1?'s':'')+' en base.':'')+'</div>';
 return '<div class="card" id="ea-prefiche">'+head+communeLine+chargesLine+filtreLine+table+foot+'</div>'}
 /* badge Meuble/Non meuble + equivalent converti dans l'autre regime.
@@ -629,12 +663,24 @@ if(res.transaction=="vente_neuf"){eaShowResultNeuf(res);return}
 var nb=res.annoncesRetenues!=null?res.annoncesRetenues:((res.annonces&&res.annonces.length)||0);
 var banner=eaDone((nb||0)+" annonce"+(nb>1?"s":"")+" récupérée"+(nb>1?"s":""),res.creditsEstimes,res.fromHistory);
 var btn=(res.global&&nb)?'<div class="no-print" style="text-align:center;margin:22px 0 6px"><button id="ea-genfiche" class="btn bp" style="padding:14px 30px;font-size:16px">&#128202; Générer la fiche complète</button></div>':'';
+var detailBtn=eaDetailBtnHtml(res);
 eaComboFD={loc:res,neuf:null,insee:null};
-eaResult.innerHTML=banner+(res.transaction=="location"?eaMeubleTable(res):'')+eaPrefiche(res)+btn+(nb?eaPdfBtnHtml():'')+'<div id="ea-fiche-zone" style="margin-top:8px"></div>';
+eaResult.innerHTML=banner+(res.transaction=="location"?eaMeubleTable(res):'')+eaPrefiche(res)+detailBtn+btn+(nb?eaPdfBtnHtml():'')+'<div id="ea-fiche-zone" style="margin-top:8px"></div>';
 if(window.gsap)gsap.from("#ea-prefiche",{y:18,opacity:0,duration:.45,ease:"power3.out"});
 eaWireRows();eaWirePdfBtn();
 var g=document.getElementById("ea-genfiche");if(g)g.onclick=function(){eaGenerateFiche(eaLastRes)};
+eaWireDetailBtn(res,function(r2){eaShowResult(r2)});
 eaRun.disabled=false;eaRun.textContent="Lancer l'étude"}
+/* bouton "Recuperer charges + DPE" (location uniquement, si pas deja fait) */
+function eaDetailBtnHtml(loc){
+var nb=loc&&loc.annonces?loc.annonces.length:0;
+if(!loc||loc.transaction!="location"||!nb)return '';
+var hasCharges=loc.annonces.some(function(a){return a&&a.charges!=null});
+if(loc._detailDone||hasCharges)return '<div class="no-print" style="text-align:center;margin:18px 0 0;color:var(--soft);font-size:13px">&#10003; Charges + DPE récupérés'+(loc.detailCredits!=null?' (+'+loc.detailCredits+' crédits)':'')+'</div>';
+return '<div class="no-print" style="text-align:center;margin:18px 0 0"><button id="ea-detailbtn" class="btn bg2" style="padding:12px 26px;font-size:15px">&#128176; Récupérer charges + DPE (≈ '+eaDetailCost(loc)+' crédits, moins si en cache)</button></div>'}
+function eaWireDetailBtn(loc,onDone){var b=document.getElementById("ea-detailbtn");if(!b)return;
+b.onclick=function(){requireAuth(function(){b.disabled=true;b.textContent="Récupération…";
+eaRunDetail(loc).then(onDone).catch(function(e){console.error("detail",e);b.disabled=false;b.textContent="Réessayer charges + DPE";toast("Échec récupération charges/DPE")})})}}
 
 /* ====== VENTE NEUF (programmes promoteurs SeLoger Neuf) ====== */
 /* pre-fiche neuf : detail LOT PAR LOT (tableau plat, lien Voir par lot) */
@@ -762,7 +808,7 @@ var b={};for(var k in body)b[k]=body[k];b.transaction="vente_neuf";delete b.anne
 return eaApi(b).then(function(res){if(res.done)return res;return eaNeufFlow(res,b,prefix)})}
 /* flux LOCATION complet (start -> pages -> finalize) -> Promise(resultat final) */
 function eaLocRun(body,prefix){prefix=prefix||"";
-eaResult.innerHTML=eaProgress(prefix+"Récupération des annonces SeLoger… (~15 s) &middot; ≈ crédits : liste + jusqu'à "+EA_DETAIL_MAX+" détails (moins si déjà en cache)",null);
+eaResult.innerHTML=eaProgress(prefix+"Récupération des annonces SeLoger… (~15 s) &middot; étude liste ≈ 3-4 crédits (charges + DPE en option ensuite)",null);
 return eaApi(body).then(function(res){
 if(res.done)return res;
 var credits=res.creditsEstimes||1,seen={},all=[];
@@ -773,33 +819,10 @@ function runFinalize(){
 eaResult.innerHTML=eaProgress(prefix+"Synthèse location… ("+all.length+" annonces)",credits);
 return eaApi({phase:"finalize",ville:res.ville,quartier:body.quartier,transaction:body.transaction,annonces:all.slice(0,EA_MAX),credits:credits})
 .then(function(fin){if(res.note&&!fin.note)fin.note=res.note;fin.recoltees=recoltees;fin.horsCommune=horsCommune;return fin})}
-/* phase DETAIL : charges/DPE sur un echantillon <=EA_DETAIL_MAX reparti par typo.
-   1) cache (0 credit) applique a TOUTES les annonces deja vues (< 30 j) ;
-   2) on ne scrape QUE des annonces utiles NON cachees (commune/typo/surface deja
-      filtrees en amont) ; 3) proxy basic->auto cote serveur. Location seulement. */
-function finalize(){
-if(body.transaction=="vente")return runFinalize();
-return eaDetailCache(res.ville).then(function(cache){
-var nbCache=0;
-all.forEach(function(a){var c=cache[eaUrlKey(a)];if(!c)return;
-if(c.charges!=null){a.charges=c.charges;
-if(a.loyer_cc!=null&&a.surface>0&&c.charges<a.loyer_cc){a.loyer_hc=Math.round(a.loyer_cc-c.charges);a.prix_m2_hc=Math.round(a.loyer_hc/a.surface*100)/100}}
-if(c.dpe)a.dpe=c.dpe;if(c.ges)a.ges=c.ges;a._cached=true;nbCache++});
-var sample=eaPickSample(all.slice(0,EA_MAX).filter(function(a){return !a._cached}),EA_DETAIL_MAX);
-if(!sample.length)return runFinalize();
-var bi=0;
-function detailStep(){
-if(bi>=sample.length)return runFinalize();
-var batch=sample.slice(bi,bi+EA_DETAIL_BATCH);bi+=batch.length;
-eaResult.innerHTML=eaProgress(prefix+"Détails (charges · DPE) : "+Math.min(bi,sample.length)+"/"+sample.length+(nbCache?" &middot; "+nbCache+" en cache":"")+"… (≈ "+credits+" crédits)",credits);
-return eaApi({phase:"loc-detail",items:batch.map(function(a){return {url:a.url,loyer_cc:a.loyer_cc,surface:a.surface}})})
-.then(function(r){credits+=(r.creditsEstimes||batch.length);
-(r.results||[]).forEach(function(d){for(var x=0;x<all.length;x++){if(all[x].url===d.url){var a=all[x];
-if(d.charges!=null){a.charges=d.charges;a.loyer_hc=d.loyer_hc;a.prix_m2_hc=d.prix_m2_hc}
-if(d.dpe)a.dpe=d.dpe;if(d.ges)a.ges=d.ges;break}}});
-return detailStep()})
-.catch(function(e){console.warn("etude-auto: lot détail en échec, on continue",e);return detailStep()})}
-return detailStep()})}
+/* ETUDE DE BASE = liste seule (loyers CC, meuble, quartier, prix/m2 CC). Le
+   scrape DETAIL (charges/HC/DPE) est OPTIONNEL, lance ensuite par un bouton
+   dedie (eaRunDetail) -> etude de base ~3-4 credits. */
+function finalize(){return runFinalize()}
 function next(pg){
 if(pg>(res.pagesPrevues||1)||all.length>=EA_MAX)return finalize();
 eaResult.innerHTML=eaProgress(prefix+"Annonces SeLoger : page "+pg+"/"+res.pagesPrevues+"… ("+all.length+" récupérées)",credits);
@@ -827,12 +850,14 @@ eaComboFD={loc:loc,neuf:nf,insee:null};
 /* bouton fiche on-ecran : present dans les 3 modes (ici fiche COMBINEE loc+neuf) */
 var hasFiche=(loc&&loc.global)||(nf&&nf.global);
 var btn=hasFiche?'<div class="no-print" style="text-align:center;margin:22px 0 6px"><button id="ea-genfiche" class="btn bp" style="padding:14px 30px;font-size:16px">&#128202; Générer la fiche complète</button></div>':'';
+var detailBtn=eaDetailBtnHtml(loc);
 eaResult.innerHTML=banner
-+'<h3 style="font-size:16px;margin:18px 0 10px">&#127968; Location &middot; détail des annonces</h3>'+eaMeubleTable(loc)+eaPrefiche(loc)
++'<h3 style="font-size:16px;margin:18px 0 10px">&#127968; Location &middot; détail des annonces</h3>'+eaMeubleTable(loc)+eaPrefiche(loc)+detailBtn
 +'<h3 style="font-size:16px;margin:18px 0 10px">&#127970; Achat neuf &middot; détail des lots</h3>'+eaPreficheNeuf(nf)
 +btn+eaPdfBtnHtml()+'<div id="ea-fiche-zone" style="margin-top:8px"></div>';
 eaWireRows();eaWirePdfBtn();
 var g=document.getElementById("ea-genfiche");if(g)g.onclick=function(){eaGenerateFicheCombo(loc,nf)};
+eaWireDetailBtn(loc,function(loc2){eaShowResultComplete(loc2,nf)});
 eaRun.disabled=false;eaRun.textContent="Lancer l'étude"}
 /* fiche COMBINEE on-ecran (etude complete) : fiche location (avec charges/HC
    reels + curseur) PUIS fiche neuf (prix + rendement loc/neuf). */
