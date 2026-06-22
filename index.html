@@ -468,29 +468,50 @@ return {insee:insee,population:(s.population!=null?s.population:pop),pct_prop:s.
 function eaAnimCounters(){if(!window.gsap)return;[].forEach.call(document.querySelectorAll("#ea-fichedoc [data-count]"),function(el){var to=parseFloat(el.getAttribute("data-count"))||0,dec=parseInt(el.getAttribute("data-dec")||"0",10),suf=el.getAttribute("data-suf")||"",o={v:0};gsap.to(o,{v:to,duration:1.1,ease:"power2.out",onUpdate:function(){el.textContent=(dec?e1(o.v):euro(o.v))+suf}})})}
 /* recalcul en direct des charges/HC quand le ratio change (sans re-render) */
 function eaUpdateCharges(){if(!eaFD||!eaFD._stats)return;var ratio=eaFD.ratio,st=eaFD._stats;
-Object.keys(st).forEach(function(t){var s=st[t],chMens=Math.round(ratio*s.surf),hcM2=Math.max(0,s.ccM2-ratio),hcMens=Math.round(hcM2*s.surf);
-var a=document.getElementById("ch-"+t);if(a)a.innerHTML=euro(chMens)+" &euro;";
+Object.keys(st).forEach(function(t){var o=st[t];if(o.sumCC==null)return; /* vente : pas de charges */
+var totalCh=o.chReal+ratio*o.surfEst,chMens=o.n?Math.round(totalCh/o.n):0,hcTot=o.sumCC-totalCh,hcM2=o.sumSurf?Math.max(0,hcTot/o.sumSurf):0,hcMens=o.n?Math.round(hcTot/o.n):0;
+var part=o.nReal+' réel'+(o.nReal>1?'s':'')+(o.nEst?' &middot; '+o.nEst+' est.':'');
+var a=document.getElementById("ch-"+t);if(a)a.innerHTML=euro(chMens)+' &euro;<div style="color:var(--soft);font-size:11px">'+part+'</div>';
 var b=document.getElementById("hcm-"+t);if(b)b.innerHTML=euro(hcMens)+" &euro;";
 var d=document.getElementById("hc2-"+t);if(d)d.innerHTML=e1(hcM2)+" &euro;"});
 var n=document.getElementById("ea-ratio-note");if(n)n.textContent=e1(ratio)}
 /* construit le HTML de la fiche complete */
 function eaBuildFiche(fd){var res=fd.res,insee=fd.insee||{},ratio=fd.ratio,ref=fd.ref,vente=res.transaction=="vente";
 var order=["T1","T2","T3","T4","T5","T6","autre"],stats={},maxM2=0;
+var anns=res.annonces||[];
+/* agrege PAR ANNONCE : charge reelle (scrape detail) prioritaire ; surfEst =
+   surface des annonces SANS charge detaillee (estimees via le ratio). Permet
+   un HC = reel la ou dispo, estime seulement pour le reste. */
+function aggOf(arr){var o={n:0,sumSurf:0,sumCC:0,chReal:0,surfEst:0,nReal:0,nEst:0};
+arr.forEach(function(a){var su=+a.surface||0,cc=(a.loyer_cc!=null?+a.loyer_cc:null);if(su<=0||cc==null)return;o.n++;o.sumSurf+=su;o.sumCC+=cc;
+var ch=(a.charges!=null&&+a.charges<cc)?+a.charges:null;if(ch!=null){o.chReal+=ch;o.nReal++}else{o.surfEst+=su;o.nEst++}});
+o.surf=o.n?o.sumSurf/o.n:0;o.ccM2=o.sumSurf?o.sumCC/o.sumSurf:0;return o}
+var grp={};anns.forEach(function(a){var t=a.typologie||"autre";(grp[t]=grp[t]||[]).push(a)});
 function st(key,s){var o={n:s.nb_annonces,surf:s.surface_moyenne||0,ccM2:s.prix_m2_cc_pondere||0};stats[key]=o;if(o.ccM2>maxM2)maxM2=o.ccM2;return o}
 var nb=res.annoncesRetenues||(res.annonces?res.annonces.length:0);
 var head='<div class="eafh"><div class="br"><div class="lg">EH</div><div class="nm">Elizabeth Holding<small>Intelligence immobilière</small></div></div>'+
 '<div style="text-align:center;flex:1;min-width:200px"><h2>'+eaEsc(res.ville)+(res.quartier?' &middot; '+eaEsc(res.quartier):'')+'</h2><div style="font-size:13px;opacity:.85;margin-top:3px">Étude de marché '+(vente?"&middot; vente":"locative")+'</div></div>'+
 '<div class="meta">'+eaDate(res.scrapedAt)+'<br>'+nb+' annonce'+(nb>1?'s':'')+' analysée'+(nb>1?'s':'')+'</div></div>';
-var tool='<div class="ea-sec no-print"><div class="ea-tool">'+(vente?'<span class="ea-note">Synthèse des prix de vente</span>':'<label>Charges estimées</label><input id="ea-ratio" type="number" step="0.1" min="0" value="'+ratio+'"><span style="font-size:13px;color:var(--soft)">&euro;/m&sup2;/mois</span>')+'<div style="flex:1"></div><button id="ea-print" class="btn bp" style="padding:9px 18px">&#128424;&#65039; Imprimer / PDF</button></div></div>';
+var tool='<div class="ea-sec no-print"><div class="ea-tool">'+(vente?'<span class="ea-note">Synthèse des prix de vente</span>':'<label>Charges estimées (annonces sans charge détaillée) &mdash; auto depuis la moyenne réelle</label><input id="ea-ratio" type="number" step="0.1" min="0" value="'+ratio+'"><span style="font-size:13px;color:var(--soft)">&euro;/m&sup2;/mois</span>')+'<div style="flex:1"></div><button id="ea-print" class="btn bp" style="padding:9px 18px">&#128424;&#65039; Imprimer / PDF</button></div></div>';
 var rowsHtml="";
-function trow(key,label,s,gl){var o=st(key,s),ccMens=Math.round(o.ccM2*o.surf),chMens=Math.round(ratio*o.surf),hcM2=Math.max(0,o.ccM2-ratio),hcMens=Math.round(hcM2*o.surf),cls=gl?' class="gl"':'';
-if(vente)return '<tr'+cls+'><td><b>'+label+'</b></td><td>'+o.n+'</td><td>'+e1(o.surf)+' m&sup2;</td><td>'+euro(ccMens)+' &euro;</td><td>'+e1(o.ccM2)+' &euro;</td></tr>';
-return '<tr'+cls+'><td><b>'+label+'</b></td><td>'+o.n+'</td><td>'+e1(o.surf)+' m&sup2;</td><td>'+euro(ccMens)+' &euro;</td><td>'+e1(o.ccM2)+' &euro;</td><td id="ch-'+key+'">'+euro(chMens)+' &euro;</td><td id="hcm-'+key+'">'+euro(hcMens)+' &euro;</td><td id="hc2-'+key+'">'+e1(hcM2)+' &euro;</td></tr>'}
-order.forEach(function(t){var s=res.parTypologie&&res.parTypologie[t];if(s)rowsHtml+=trow(t,t=="autre"?"Autre":t,s,false)});
-if(res.global)rowsHtml+=trow("GLOBAL","Global",res.global,true);
+/* cellule Charges (mix reel+estime) + part reelle/estimee ; HC = CC - charges mix */
+function chargeCell(o){var totalCh=o.chReal+ratio*o.surfEst,chMens=o.n?Math.round(totalCh/o.n):0;
+var part=o.nReal+' réel'+(o.nReal>1?'s':'')+(o.nEst?' &middot; '+o.nEst+' est.':'');
+return euro(chMens)+' &euro;<div style="color:var(--soft);font-size:11px">'+part+'</div>'}
+function hcVals(o){var totalCh=o.chReal+ratio*o.surfEst,hcTot=o.sumCC-totalCh;return {m2:o.sumSurf?Math.max(0,hcTot/o.sumSurf):0,mens:o.n?Math.round(hcTot/o.n):0}}
+function trowVente(key,label,s,gl){var o=st(key,s),ccMens=Math.round(o.ccM2*o.surf),cls=gl?' class="gl"':'';
+return '<tr'+cls+'><td><b>'+label+'</b></td><td>'+o.n+'</td><td>'+e1(o.surf)+' m&sup2;</td><td>'+euro(ccMens)+' &euro;</td><td>'+e1(o.ccM2)+' &euro;</td></tr>'}
+function trowLoc(key,label,arr,gl){var o=aggOf(arr);stats[key]=o;if(o.ccM2>maxM2)maxM2=o.ccM2;var cls=gl?' class="gl"':'';
+var ccMens=o.n?Math.round(o.sumCC/o.n):0,hc=hcVals(o);
+return '<tr'+cls+'><td><b>'+label+'</b></td><td>'+o.n+'</td><td>'+e1(o.surf)+' m&sup2;</td><td>'+euro(ccMens)+' &euro;</td><td>'+e1(o.ccM2)+' &euro;</td><td id="ch-'+key+'">'+chargeCell(o)+'</td><td id="hcm-'+key+'">'+euro(hc.mens)+' &euro;</td><td id="hc2-'+key+'">'+e1(hc.m2)+' &euro;</td></tr>'}
+order.forEach(function(t){if(vente){if(res.parTypologie&&res.parTypologie[t])rowsHtml+=trowVente(t,t=="autre"?"Autre":t,res.parTypologie[t],false)}
+else if(grp[t]&&grp[t].length)rowsHtml+=trowLoc(t,t=="autre"?"Autre":t,grp[t],false)});
+if(vente){if(res.global)rowsHtml+=trowVente("GLOBAL","Global",res.global,true)}
+else if(anns.length)rowsHtml+=trowLoc("GLOBAL","Global",anns,true);
 var barsHtml="";order.concat(["GLOBAL"]).forEach(function(t){var o=stats[t];if(!o)return;var w=maxM2?Math.round(o.ccM2/maxM2*100):0;barsHtml+='<div class="ea-barrow"><b>'+(t=="GLOBAL"?"Tous":t)+'</b><div class="ea-bartrack"><div class="ea-barfill" data-w="'+w+'"></div></div><span style="text-align:right">'+e1(o.ccM2)+' &euro;/m&sup2;</span></div>'});
-var heads=vente?'<th>Typologie</th><th>Annonces</th><th>Surface moy.</th><th>Prix moy. (&euro;/mois)</th><th>&euro;/m&sup2;</th>':'<th>Typologie</th><th>Annonces</th><th>Surface moy.</th><th>Loyer CC (&euro;/mois)</th><th>&euro;/m&sup2; CC</th><th>Charges est.</th><th>Loyer HC (&euro;/mois)</th><th>&euro;/m&sup2; HC</th>';
-var loyers='<div class="ea-sec"><h3><span class="ic">&#128202;</span> Loyers par typologie</h3><div style="overflow-x:auto"><table class="ea-ftab"><thead><tr>'+heads+'</tr></thead><tbody>'+rowsHtml+'</tbody></table></div><div class="ea-bars">'+barsHtml+'</div>'+(vente?'':'<div class="ea-note" style="margin-top:12px">&#9432; Charges <b>estimées</b> &asymp; <span id="ea-ratio-note">'+e1(ratio)+'</span> &euro;/m&sup2;/mois (modifiable ci-dessus). Loyer HC = loyer CC &minus; charges estimées. Loyers CC réels, pondérés par surface (source SeLoger).</div>')+'</div>';
+var heads=vente?'<th>Typologie</th><th>Annonces</th><th>Surface moy.</th><th>Prix moy. (&euro;/mois)</th><th>&euro;/m&sup2;</th>':'<th>Typologie</th><th>Annonces</th><th>Surface moy.</th><th>Loyer CC (&euro;/mois)</th><th>&euro;/m&sup2; CC</th><th>Charges (réel + est.)</th><th>Loyer HC (&euro;/mois)</th><th>&euro;/m&sup2; HC</th>';
+var cgN=res.charges&&res.charges.global,partNote=(!vente&&cgN)?' Charges <b>réelles</b> relevées sur '+(res.charges.nb_charges_reelles||0)+'/'+(res.charges.nb_total||0)+' annonces ; les autres sont estimées via le ratio.':'';
+var loyers='<div class="ea-sec"><h3><span class="ic">&#128202;</span> Loyers par typologie</h3><div style="overflow-x:auto"><table class="ea-ftab"><thead><tr>'+heads+'</tr></thead><tbody>'+rowsHtml+'</tbody></table></div><div class="ea-bars">'+barsHtml+'</div>'+(vente?'':'<div class="ea-note" style="margin-top:12px">&#9432; Charges = <b>réelles en priorité</b> (scrape détail), sinon estimées &asymp; <span id="ea-ratio-note">'+e1(ratio)+'</span> &euro;/m&sup2;/mois (pré-rempli depuis la moyenne réelle, modifiable ci-dessus &mdash; ne recalcule que les estimées). Loyer HC = loyer CC &minus; charges.'+partNote+'</div>')+'</div>';
 function statc(t,inner){return '<div class="ea-stat"><div class="t">'+t+'</div>'+inner+'</div>'}
 var pop=insee.population,prop=insee.pct_prop,loc=insee.pct_loc,evo=insee.evolution,rev=insee.revenu,rec=insee.recents,hasSocio=(prop!=null||rev!=null||loc!=null);
 var inseeBlk='<div class="ea-sec"><h3><span class="ic">&#127962;</span> Données commune &middot; '+eaEsc(res.ville)+'</h3><div class="ea-statgrid">'+
