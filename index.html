@@ -1057,19 +1057,31 @@ return {nb_annonces:n,surface_moyenne:Math.round(ss/n*10)/10,prix_m2_cc_pondere:
 var groups={};lots.forEach(function(a){var t=a.typologie||"autre";(groups[t]=groups[t]||[]).push(a)});
 var pt={};["T1","T2","T3","T4","T5","T6","autre"].forEach(function(t){if(groups[t])pt[t]=calc(groups[t])});
 return {parTypologie:pt,global:calc(lots)}}
+/* fetch etudes_marche RESILIENT : tente avec etude_id ; si la colonne n'est pas
+   encore exposee par l'API (cache de schema PostgREST pas recharge apres ALTER),
+   la requete echoue -> on repli sans etude_id (grouping fallback ville+jour). */
+function eaHistFetchEtudes(h){
+var base=EA_SUPA+"/etudes_marche?source=in.(firecrawl,manuel)&transaction=in.(location,vente)&select=";
+var cols="ville,quartier,scraped_at,titre,typologie,nb_pieces,surface,loyer_cc,charges,loyer_hc,prix_m2_cc,prix_m2_hc,dpe,ges,url,code_postal,meuble,source,transaction,adresse,lat,lng";
+var tail="&order=scraped_at.desc&limit=4000";
+function get(extra){return fetch(base+cols+extra+tail,{headers:h}).then(function(r){return r.ok?r.json():null}).catch(function(){return null})}
+return get(",etude_id").then(function(j){return Array.isArray(j)?j:get("").then(function(j2){return Array.isArray(j2)?j2:[]})})}
 function eaHistLoad(){
 var z=document.getElementById("hist-zone");if(!z)return;
 z.innerHTML='<div class="card" style="padding:28px;text-align:center;color:var(--soft)"><div class="spinner" style="width:26px;height:26px;border-width:3px;margin:0 auto 10px"></div>Chargement de l\'historique…</div>';
 var h={apikey:EA_KEY,Authorization:"Bearer "+EA_KEY};
 Promise.all([
-fetch(EA_SUPA+"/etudes_marche?source=in.(firecrawl,manuel)&transaction=in.(location,vente)&select=ville,quartier,scraped_at,titre,typologie,nb_pieces,surface,loyer_cc,charges,loyer_hc,prix_m2_cc,prix_m2_hc,dpe,ges,url,code_postal,meuble,source,transaction,adresse,lat,lng&order=scraped_at.desc&limit=4000",{headers:h}).then(function(r){return r.ok?r.json():[]}).catch(function(){return[]}),
+eaHistFetchEtudes(h),
 fetch(EA_SUPA+"/programmes_neufs?select=*&order=scraped_at.desc&limit=3000",{headers:h}).then(function(r){return r.ok?r.json():[]}).catch(function(){return[]})
 ]).then(function(res){
 var groups={};
 /* 1 etude = 1 LANCEMENT : on groupe par etude_id (identifiant de lot) ; a
    defaut (anciennes lignes) par ville + horodatage a la MINUTE. PLUS par
    quartier (qui varie par annonce) ni par typologie -> 1 ligne par etude. */
-function gkey(r){return r.etude_id?("id:"+r.etude_id):((r.ville||"?")+"||"+String(r.scraped_at||"").slice(0,16))}
+/* nouvelles etudes : regroupement par etude_id (1 lancement). Anciennes (sans
+   etude_id) : fallback ville + JOUR (date sans l'heure) -> fusionne a l'affichage
+   les lignes eparpillees sur plusieurs minutes, et la location avec le neuf. */
+function gkey(r){return r.etude_id?("id:"+r.etude_id):((r.ville||"?").toLowerCase()+"||"+String(r.scraped_at||"").slice(0,10))}
 /* dedup par URL : base + re-stockage detail = 2 lignes/annonce -> on garde la
    plus complete (charges/DPE), sinon la plus recente. */
 function eaHistDedup(rows){var m={},out=[],n=0;

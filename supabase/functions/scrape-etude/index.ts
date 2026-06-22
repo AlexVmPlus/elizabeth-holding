@@ -239,20 +239,43 @@ async function resolveClassifiedCode(env: Env, ville: string, insee: string | nu
   }
 }
 
+// Insert PostgREST resilient : si une colonne est absente du cache de schema
+// (ex etude_id pas encore expose apres ALTER TABLE), on retire la/les colonnes
+// fautives et on REESSAYE -> l'etude s'enregistre quand meme. deno-lint-ignore no-explicit-any
+async function pgInsert(env: Env, table: string, rows: any[]): Promise<void> {
+  if (!rows.length) return;
+  const post = (body: unknown) =>
+    fetch(`${env.supaUrl}/rest/v1/${table}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": env.serviceKey,
+        "Authorization": `Bearer ${env.serviceKey}`,
+        "Prefer": "return=minimal",
+      },
+      body: JSON.stringify(body),
+    });
+  let ins = await post(rows);
+  if (!ins.ok) {
+    const txt = (await ins.text()).slice(0, 300);
+    // colonne inconnue (PGRST204 / 42703) -> on la retire et on reessaye
+    const col = txt.match(/'([a-z_]+)' column/i)?.[1] || (/etude_id/.test(txt) ? "etude_id" : null);
+    if (col) {
+      // deno-lint-ignore no-explicit-any
+      const stripped = rows.map((r: any) => {
+        const c = { ...r };
+        delete c[col];
+        return c;
+      });
+      console.warn(`[insert] colonne '${col}' absente -> reessai sans (${table})`);
+      ins = await post(stripped);
+    }
+    if (!ins.ok) throw new Error(`Insert ${table} HTTP ${ins.status}: ${txt}`);
+  }
+}
 // deno-lint-ignore no-explicit-any
 async function insertRows(env: Env, rows: any[]): Promise<void> {
-  if (!rows.length) return;
-  const ins = await fetch(`${env.supaUrl}/rest/v1/etudes_marche`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "apikey": env.serviceKey,
-      "Authorization": `Bearer ${env.serviceKey}`,
-      "Prefer": "return=minimal",
-    },
-    body: JSON.stringify(rows),
-  });
-  if (!ins.ok) throw new Error(`Insert Supabase HTTP ${ins.status}: ${(await ins.text()).slice(0, 300)}`);
+  await pgInsert(env, "etudes_marche", rows);
 }
 
 // deno-lint-ignore no-explicit-any
@@ -669,20 +692,10 @@ async function handleFinalizeNeuf(body: ReqBody, env: Env): Promise<Response> {
   const fresh = annonces.filter((a) => !a.cached);
   try {
     if (fresh.length) {
-      const ins = await fetch(`${env.supaUrl}/rest/v1/programmes_neufs`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": env.serviceKey,
-          "Authorization": `Bearer ${env.serviceKey}`,
-          "Prefer": "return=minimal",
-        },
-        body: JSON.stringify(fresh.map((a) => {
-          const { cached: _c, ...row } = a;
-          return { ...row, scraped_at: scrapedAt, etude_id: body.etudeId ?? null };
-        })),
-      });
-      if (!ins.ok) console.error(`[neuf-finalize] insert HTTP ${ins.status}: ${(await ins.text()).slice(0, 200)}`);
+      await pgInsert(env, "programmes_neufs", fresh.map((a) => {
+        const { cached: _c, ...row } = a;
+        return { ...row, scraped_at: scrapedAt, etude_id: body.etudeId ?? null };
+      }));
     }
   } catch (e) {
     console.error("[neuf-finalize] insert echec :", e instanceof Error ? e.message : e);
