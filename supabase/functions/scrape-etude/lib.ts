@@ -496,6 +496,23 @@ export function parseMeuble(text: string | null | undefined): boolean | null {
   return null;
 }
 
+// Quartier (INFORMATIF) deduit de l'URL d'annonce SeLoger, sans requete : le
+// chemin porte le quartier entre la commune et l'id, ex
+//   /annonces/locations/appartement/bordeaux-33/saint-jean-belcier/123.htm
+//   -> "Saint-Jean-Belcier".
+// Renvoie null si pas de segment quartier (URL .../commune/id.htm directe) ou si
+// le segment reprend juste le nom de la commune (non informatif).
+export function parseQuartierFromUrl(url: string | null | undefined, ville?: string | null): string | null {
+  if (!url) return null;
+  const m = url.match(/\/annonces\/[^/]+\/[^/]+\/[^/]+\/([a-z][a-z0-9-]{2,})\/\d+\.html?(?:[?#]|$)/i);
+  if (!m) return null;
+  const slug = m[1].toLowerCase();
+  if (/^\d+$/.test(slug)) return null;
+  const nom = slug.split("-").map((w) => w ? w.charAt(0).toUpperCase() + w.slice(1) : w).join("-");
+  if (ville && normLoc(nom) === normLoc(ville)) return null; // segment = commune -> pas un quartier
+  return nom;
+}
+
 // Nettoie une URL capturee depuis le markdown : un lien markdown peut s'ecrire
 // `(url "titre")` -> le groupe capture inclut alors ` "titre"`. Une vraie URL ne
 // contient jamais d'espace brut, donc on coupe au 1er espace (retire le titre et
@@ -625,9 +642,11 @@ export function annonceToRow(a: RawAnnonce, ctx: RowCtx): Row | null {
   const prix_m2_hc = isLoc
     ? (loyer_hc != null ? round(loyer_hc / a.surface) : null)
     : prix_m2_cc; // vente : pas de notion CC/HC -> identique
+  // Quartier INFORMATIF : deduit de l'URL d'annonce (gratuit), sinon contexte.
+  const quartier = parseQuartierFromUrl(a.url, ctx.ville) ?? ctx.quartier;
   return {
     ville: ctx.ville,
-    quartier: ctx.quartier,
+    quartier,
     code_postal: ctx.code_postal,
     transaction: ctx.transaction,
     nb_pieces: a.pieces,

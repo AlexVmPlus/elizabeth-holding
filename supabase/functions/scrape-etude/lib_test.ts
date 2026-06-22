@@ -32,6 +32,7 @@ import {
   matchesCommune,
   normLoc,
   parseChargesDetail,
+  parseQuartierFromUrl,
   parseDpe,
   parseGes,
   synthesizeCharges,
@@ -648,4 +649,27 @@ Deno.test("synthesizeCharges : charges reelles vs estimees + HC pondere", () => 
   assertEquals(t2.nb_charges_estimees, 1);
   // HC pondere T2 : ann1 (1000-100)/50 + ann2 estimee (1000-100)/50 = 1800 € / 100 m² = 18 €/m²
   assertEquals(t2.loyer_hc_m2_pondere, 18);
+});
+
+Deno.test("parseQuartierFromUrl : quartier deduit du chemin d'URL (informatif)", () => {
+  assertEquals(
+    parseQuartierFromUrl("https://www.seloger.com/annonces/locations/appartement/bordeaux-33/saint-jean-belcier/210912345.htm"),
+    "Saint-Jean-Belcier",
+  );
+  assertEquals(
+    parseQuartierFromUrl("https://www.seloger.com/annonces/locations/appartement/paris-8eme-75008/champ-de-mars/12345.htm"),
+    "Champ-De-Mars",
+  );
+  // pas de segment quartier (commune -> id direct) -> null
+  assertEquals(parseQuartierFromUrl("https://www.seloger.com/annonces/locations/appartement/bordeaux-33/210912345.htm"), null);
+  // segment = nom de la commune -> non informatif
+  assertEquals(parseQuartierFromUrl("https://www.seloger.com/annonces/locations/appartement/nanterre-92/nanterre/123.htm", "Nanterre"), null);
+  assertEquals(parseQuartierFromUrl("u"), null);
+  assertEquals(parseQuartierFromUrl(null), null);
+});
+
+Deno.test("annonceToRow : quartier deduit de l'URL d'annonce", () => {
+  const a: RawAnnonce = { url: "https://www.seloger.com/annonces/locations/appartement/bordeaux-33/chartrons/9.htm", titre: "T2", loyer: 900, surface: 45, pieces: 2 };
+  const r = annonceToRow(a, { ...CTX, quartier: null })!;
+  assertEquals(r.quartier, "Chartrons");
 });

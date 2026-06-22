@@ -792,12 +792,32 @@ var credits=(loc.creditsEstimes||0)+(nf.creditsEstimes||0);
 var cdetail=(nf.cachedProgrammes!=null)?" &middot; neuf : "+(nf.cachedProgrammes||0)+" prog. cache / "+(nf.scrapedProgrammes||0)+" scrapés":"";
 var banner=eaDone("Étude complète : "+(loc.annoncesRetenues||0)+" annonces location &middot; "+(nf.annoncesRetenues||0)+" lots neufs"+cdetail,credits,loc.fromHistory||nf.fromHistory);
 eaComboFD={loc:loc,neuf:nf,insee:null};
+/* bouton fiche on-ecran : present dans les 3 modes (ici fiche COMBINEE loc+neuf) */
+var hasFiche=(loc&&loc.global)||(nf&&nf.global);
+var btn=hasFiche?'<div class="no-print" style="text-align:center;margin:22px 0 6px"><button id="ea-genfiche" class="btn bp" style="padding:14px 30px;font-size:16px">&#128202; Générer la fiche complète</button></div>':'';
 eaResult.innerHTML=banner
 +'<h3 style="font-size:16px;margin:18px 0 10px">&#127968; Location &middot; détail des annonces</h3>'+eaMeubleTable(loc)+eaPrefiche(loc)
 +'<h3 style="font-size:16px;margin:18px 0 10px">&#127970; Achat neuf &middot; détail des lots</h3>'+eaPreficheNeuf(nf)
-+eaPdfBtnHtml();
++btn+eaPdfBtnHtml()+'<div id="ea-fiche-zone" style="margin-top:8px"></div>';
 eaWireRows();eaWirePdfBtn();
+var g=document.getElementById("ea-genfiche");if(g)g.onclick=function(){eaGenerateFicheCombo(loc,nf)};
 eaRun.disabled=false;eaRun.textContent="Lancer l'étude"}
+/* fiche COMBINEE on-ecran (etude complete) : fiche location (avec charges/HC
+   reels + curseur) PUIS fiche neuf (prix + rendement loc/neuf). */
+function eaGenerateFicheCombo(loc,nf){var z=document.getElementById("ea-fiche-zone");if(!z)return;
+z.innerHTML=eaProgress("Génération de la fiche complète…",null);
+var ville=(loc&&loc.ville)||(nf&&nf.ville);
+eaFetchInsee(ville).then(function(insee){insee=insee||{};
+var html="";
+if(loc&&loc.global){var ratio=(loc.charges&&loc.charges.ratio_m2_moyen!=null)?loc.charges.ratio_m2_moyen:2.5;eaFD={res:loc,insee:insee,ratio:ratio,ref:13.5};html+=eaBuildFiche(eaFD)}
+if(nf&&nf.global){var locLoyer=(loc&&loc.global&&loc.global.prix_m2_cc_pondere!=null)?{loyerM2:loc.global.prix_m2_cc_pondere,date:loc.scrapedAt}:null;html+=eaBuildFicheNeuf({res:nf,insee:insee,loc:locLoyer})}
+if(!html){z.innerHTML='<div class="card" style="padding:24px;color:var(--soft)">Données insuffisantes pour générer la fiche.</div>';return}
+z.innerHTML=html;
+[].forEach.call(z.querySelectorAll("#ea-print"),function(p){p.onclick=function(){window.print()}});
+var ri=document.getElementById("ea-ratio");if(ri)ri.oninput=function(){var v=parseFloat(ri.value);if(!isNaN(v)&&v>=0&&v<60){eaFD.ratio=v;eaUpdateCharges()}};
+if(window.gsap){gsap.from("#ea-fiche-zone .eafh, #ea-fiche-zone .ea-sec",{y:20,opacity:0,stagger:.05,duration:.5,ease:"power3.out"});eaAnimCounters()}
+setTimeout(function(){[].forEach.call(z.querySelectorAll(".ea-barfill"),function(b){b.style.width=b.getAttribute("data-w")+"%"})},380);
+z.scrollIntoView({behavior:"smooth",block:"start"})}).catch(function(e){console.error("fiche combo",e);z.innerHTML='<div class="card" style="padding:24px;color:var(--soft)">Échec de génération de la fiche.</div>'})}
 /* telechargement PDF : genere COTE SERVEUR par l'Edge Function fiche-pdf
    (jsPDF par positionnement + photo Wikipedia serveur). On a abandonne
    html2canvas qui produisait des PDF blancs. */
