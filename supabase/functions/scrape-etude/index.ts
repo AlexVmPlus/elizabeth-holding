@@ -724,32 +724,57 @@ async function handleDetail(body: ReqBody, env: Env): Promise<Response> {
 // ============================================================================
 // PHASE "loc-detail" : scrape un LOT d'annonces (echantillon location) en
 // PARALLELE -> charges / loyer_hc / prix_m2_hc / DPE / GES par annonce.
-// Le front pilote la boucle (lots de ~5) pour afficher "Charges k/25" et rester
-// loin de WORKER_RESOURCE_LIMIT. proxy "auto" (plan payant) requis pour les
-// pages detail SeLoger. Echec d'UNE annonce -> n/d, les autres continuent.
+// Le front pilote la boucle (lots de ~5), gere le cache (0 credit) et ne
+// transmet que les annonces UTILES non cachees.
+// COUT : proxy "basic" d'abord (~1 credit/page) ; si la page revient bloquee /
+// vide (DataDome -> markdown court) ou en erreur, on RE-SCRAPE cette page en
+// proxy "auto" (proxy fort eprouve sur les pages detail SeLoger). La majorite
+// des pages passent en basic -> 1 credit. Echec total -> n/d, on continue.
+// NB : charges absentes != echec (beaucoup d'annonces n'affichent pas de
+// montant) -> on ne re-scrape PAS pour ca (sinon le cout exploserait).
 // ============================================================================
 const LOC_DETAIL_BATCH = 8; // garde-fou serveur (le front envoie ~5)
+const DETAIL_MIN_CHARS = 3000; // page detail SeLoger reelle = 35k+ ; en-dessous = bloquee/vide
+async function scrapeDetailPage(url: string, env: Env): Promise<{ md: string; credits: number }> {
+  let md = "";
+  let credits = 0;
+  try {
+    const d = await fcScrape(url, env.fcKey, ["markdown"], 4000, { proxy: "basic", timeout: 45000 });
+    md = typeof d.markdown === "string" ? d.markdown : "";
+  } catch (e) {
+    console.warn("[loc-detail] basic echec :", url, e instanceof Error ? e.message : e);
+  }
+  credits += 1; // tentative basic
+  if (md.length < DETAIL_MIN_CHARS) {
+    // page bloquee / vide -> escalade proxy fort (eprouve)
+    try {
+      const d2 = await fcScrape(url, env.fcKey, ["markdown"], 4000, { proxy: "auto", timeout: 60000 });
+      const md2 = typeof d2.markdown === "string" ? d2.markdown : "";
+      if (md2.length > md.length) md = md2;
+    } catch (e) {
+      console.warn("[loc-detail] auto echec :", url, e instanceof Error ? e.message : e);
+    }
+    credits += 3; // escalade auto (proxy fort, plus cher)
+  }
+  return { md, credits };
+}
 async function handleLocDetail(body: ReqBody, env: Env): Promise<Response> {
   const items = Array.isArray(body.items) ? body.items.slice(0, LOC_DETAIL_BATCH) : [];
   if (!items.length) return json({ error: "items manquants" }, 400);
+  let credits = 0;
   const results = await Promise.all(items.map(async (it) => {
     const url = String(it?.url || "");
     if (!url) return null;
     const loyerCc = num(it.loyer_cc);
     const surface = num(it.surface);
-    try {
-      const data = await fcScrape(url, env.fcKey, ["markdown"], 4000, { proxy: "auto", timeout: 60000 });
-      const md = typeof data.markdown === "string" ? data.markdown : "";
-      const d = detailResult(loyerCc, surface, md);
-      return { url, ...d };
-    } catch (e) {
-      console.error("[loc-detail] echec :", url, e instanceof Error ? e.message : e);
-      return { url, charges: null, loyer_hc: null, prix_m2_cc: null, prix_m2_hc: null, dpe: null, ges: null };
-    }
+    const { md, credits: c } = await scrapeDetailPage(url, env);
+    credits += c;
+    if (!md) return { url, charges: null, loyer_hc: null, prix_m2_cc: null, prix_m2_hc: null, dpe: null, ges: null };
+    return { url, ...detailResult(loyerCc, surface, md) };
   }));
   const out = results.filter(Boolean);
-  console.log(`[loc-detail] ${out.length} pages, ${out.filter((r) => r && r.charges != null).length} avec charges`);
-  return json({ phase: "loc-detail", results: out, creditsEstimes: items.length });
+  console.log(`[loc-detail] ${out.length} pages, ${out.filter((r) => r && r.charges != null).length} avec charges, ${credits} credits`);
+  return json({ phase: "loc-detail", results: out, creditsEstimes: credits });
 }
 
 // ============================================================================
