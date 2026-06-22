@@ -395,18 +395,66 @@ export function parseCharges(text: string): number | null {
   return isFinite(n) && n > 0 ? n : null;
 }
 
-// Resultat d'UNE page detail (phase "detail") : charges + loyer_hc + prix/m2.
-// charges introuvable -> null (l'annonce reste exploitable en CC).
+// Charges sur une PAGE DETAIL (plan Firecrawl payant, proxy auto). En plus des
+// motifs de parseCharges, gere "Provisions pour charges ... X €/mois" ou texte
+// peut s'intercaler ("Provisions pour charges recuperables : 120 €/mois"). Le
+// montant capture est valide par l'appelant (charges < loyer) pour ne PAS
+// confondre avec un loyer cc/mois de parking/cave cite dans le descriptif.
+// REALITE : ~1/3 a 1/2 des annonces seulement detaillent un montant -> sinon
+// null (on n'invente pas).
+export function parseChargesDetail(markdown: string): number | null {
+  if (!markdown) return null;
+  const m = markdown.match(new RegExp(`[Pp]rovisions?\\s+pour\\s+charges[^0-9]{0,50}(\\d[\\d${SP}]{0,5})\\s*€`));
+  if (m) {
+    const n = parseInt(m[1].replace(new RegExp(`[${SP}]`, "g"), ""), 10);
+    if (isFinite(n) && n > 0) return n;
+  }
+  return parseCharges(markdown);
+}
+
+// Lettre A-G d'un diagnostic (DPE / GES) sur une page detail : on trouve le
+// libelle puis la 1ere lettre A-G ISOLEE qui suit (la valeur est souvent sur la
+// ligne / l'element suivant -> on saute espaces, sauts de ligne et ponctuation,
+// mais PAS un mot, pour ne pas attraper une lettre au milieu d'une phrase).
+function energyGrade(markdown: string, labelRe: RegExp): string | null {
+  if (!markdown) return null;
+  const re = new RegExp(labelRe.source, "gi");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(markdown)) !== null) {
+    const win = markdown.slice(m.index + m[0].length, m.index + m[0].length + 60);
+    const g = win.match(/^[^A-Za-z0-9]{0,25}([A-Ga-g])(?![A-Za-z])/);
+    if (g) return g[1].toUpperCase();
+  }
+  return null;
+}
+
+// DPE : "Diagnostic de performance energetique (DPE)" / "DPE" / "classe energie".
+// Le libelle "classe energie/energetique" doit etre consomme EN ENTIER (sinon
+// le "e" final de "energie" serait pris pour la note E).
+export function parseDpe(markdown: string): string | null {
+  return energyGrade(markdown, /\bDPE\b|diagnostic de performance [eé]nerg[eé]tique|classe [eé]nergie|classe [eé]nerg[eé]tique/);
+}
+
+// GES : "Gaz a effet de serre (GES)" / "GES".
+export function parseGes(markdown: string): string | null {
+  return energyGrade(markdown, /\bGES\b|gaz [aà] effet de serre/);
+}
+
+// Resultat d'UNE page detail (phase "detail" / "loc-detail") : charges +
+// loyer_hc + prix/m2 + DPE/GES. charges introuvable -> null (annonce exploitable
+// en CC). charges >= loyer -> ignorees (montant douteux capte dans le descriptif).
 export function detailResult(loyerCc: number | null, surface: number | null, markdown: string) {
-  const charges = parseCharges(markdown);
+  const raw = parseChargesDetail(markdown);
   const prix_m2_cc = (loyerCc != null && surface != null && surface > 0) ? round(loyerCc / surface) : null;
+  let charges: number | null = null;
   let loyer_hc: number | null = null;
   let prix_m2_hc: number | null = null;
-  if (charges != null && loyerCc != null && surface != null && surface > 0 && charges < loyerCc) {
-    loyer_hc = round(loyerCc - charges);
+  if (raw != null && loyerCc != null && surface != null && surface > 0 && raw < loyerCc) {
+    charges = raw;
+    loyer_hc = round(loyerCc - raw);
     prix_m2_hc = round(loyer_hc / surface);
   }
-  return { charges, loyer_hc, prix_m2_cc, prix_m2_hc };
+  return { charges, loyer_hc, prix_m2_cc, prix_m2_hc, dpe: parseDpe(markdown), ges: parseGes(markdown) };
 }
 
 // Fusionne les annonces partielles (loyer_cc/surface...) avec les markdowns
@@ -822,4 +870,104 @@ export function synthesize(rows: StatRow[], transaction: Transaction) {
   if (groups["?"]) parTypologie["autre"] = calc(groups["?"]);
 
   return { parTypologie, global: calc(rows) };
+}
+
+// ----------------------------------------------------------------------------
+// Synthese CHARGES / LOYER HC / DPE (location, a partir de l'echantillon scrape
+// en detail). Charges moyennes calculees UNIQUEMENT sur les annonces ou un
+// montant a ete trouve (charges reelles). Pour le loyer HC par typologie : on
+// utilise les charges reelles si presentes, sinon on ESTIME via le ratio moyen
+// €/m² observe (marque par nb_charges_estimees). On expose combien sont reelles
+// vs estimees pour la transparence.
+// ----------------------------------------------------------------------------
+export interface ChargesRow {
+  surface: number;
+  typologie: string | null;
+  loyer_cc: number | null;
+  charges: number | null; // reel (scrape) ou null
+  dpe?: string | null;
+}
+
+// DPE/GES le plus frequent (mode) d'une liste, en ignorant les valeurs vides.
+export function modeGrade(values: Array<string | null | undefined>): string | null {
+  const counts = new Map<string, number>();
+  for (const v of values) {
+    const g = (v || "").trim().toUpperCase();
+    if (/^[A-G]$/.test(g)) counts.set(g, (counts.get(g) || 0) + 1);
+  }
+  let best: string | null = null;
+  let bestN = 0;
+  for (const [g, n] of counts) {
+    if (n > bestN) {
+      best = g;
+      bestN = n;
+    }
+  }
+  return best;
+}
+
+export function synthesizeCharges(rows: ChargesRow[]) {
+  // Ratio moyen charges/m² (pondere surface) sur les annonces avec charges
+  // reelles -> sert a estimer le loyer HC des annonces sans montant.
+  let gCh = 0, gChSurf = 0, gReel = 0;
+  for (const r of rows) {
+    if (r.charges != null && r.surface > 0 && (r.loyer_cc == null || r.charges < r.loyer_cc)) {
+      gCh += r.charges;
+      gChSurf += r.surface;
+      gReel++;
+    }
+  }
+  const ratioM2 = gChSurf > 0 ? round(gCh / gChSurf) : null;
+
+  const calc = (arr: ChargesRow[]) => {
+    let sChAmt = 0, sChSurf = 0, nReel = 0; // charges reelles (somme montants / surfaces)
+    let sHc = 0, sHcSurf = 0, nEst = 0; // loyer HC (reel + estime)
+    for (const r of arr) {
+      if (!r.surface || r.surface <= 0 || r.loyer_cc == null) continue;
+      let charges = (r.charges != null && r.charges < r.loyer_cc) ? r.charges : null;
+      let estime = false;
+      if (charges == null && ratioM2 != null) {
+        const est = round(ratioM2 * r.surface);
+        if (est < r.loyer_cc) {
+          charges = est;
+          estime = true;
+        }
+      }
+      if (charges == null) continue;
+      if (estime) {
+        nEst++;
+      } else {
+        sChAmt += charges;
+        sChSurf += r.surface;
+        nReel++;
+      }
+      sHc += (r.loyer_cc - charges);
+      sHcSurf += r.surface;
+    }
+    if (!sHcSurf) return null;
+    return {
+      charges_m2_moyen: sChSurf > 0 ? round(sChAmt / sChSurf) : null, // €/m²/mois (reel, pondere surface)
+      charges_moyen: nReel > 0 ? round(sChAmt / nReel) : null, // € /mois moyen (reel, par annonce)
+      nb_charges_reelles: nReel,
+      nb_charges_estimees: nEst,
+      loyer_hc_m2_pondere: round(sHc / sHcSurf), // €/m²/mois HC (reel + estime)
+      dpe_frequent: modeGrade(arr.map((r) => r.dpe)),
+    };
+  };
+
+  const groups: Record<string, ChargesRow[]> = {};
+  for (const r of rows) (groups[r.typologie || "?"] ||= []).push(r);
+  const parTypologie: Record<string, ReturnType<typeof calc>> = {};
+  for (const t of ["T1", "T2", "T3", "T4", "T5", "T6"]) {
+    if (groups[t]) parTypologie[t] = calc(groups[t]);
+  }
+  if (groups["?"]) parTypologie["autre"] = calc(groups["?"]);
+  return {
+    parTypologie,
+    global: calc(rows),
+    ratio_m2_moyen: ratioM2,
+    nb_charges_reelles: gReel,
+    nb_total: rows.length,
+    dpe_frequent: modeGrade(rows.map((r) => r.dpe)),
+  };
 }

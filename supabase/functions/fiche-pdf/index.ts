@@ -319,6 +319,21 @@ export function buildPdf(data: Any, photo: { b64: string; fmt: "JPEG" | "PNG" } 
   doc.setFontSize(6.3);
   doc.setTextColor(GRIS);
   doc.text("Loyers CC pondérés par surface · * = estimé par conversion (meublé = non meublé × 1,15) · rendement brut = loyer non meublé × 12 ÷ prix/m² neuf", L, y + 1.5);
+  // Charges reelles / loyer HC moyen / DPE le plus frequent (echantillon detaille)
+  const cg: Any = loc && loc.charges && loc.charges.global;
+  if (cg) {
+    const parts: string[] = [];
+    if (cg.charges_m2_moyen != null) parts.push(`charges moy. ${e1(cg.charges_m2_moyen)} €/m²/mois`);
+    if (cg.loyer_hc_m2_pondere != null) parts.push(`loyer HC moy. ${e1(cg.loyer_hc_m2_pondere)} €/m²/mois`);
+    if (loc.dpeFrequent) parts.push(`DPE fréquent ${loc.dpeFrequent}`);
+    if (parts.length) {
+      doc.text(
+        `Charges relevées (${loc.charges.nb_charges_reelles || 0}/${loc.charges.nb_total || 0} annonces) · ${parts.join(" · ")}`,
+        L,
+        y + 4.3,
+      );
+    }
+  }
 
   // ---------- E. INSEE + lecture marche (ancres bas de page) ----------
   const yB = 240;

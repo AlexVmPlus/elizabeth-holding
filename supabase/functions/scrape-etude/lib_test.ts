@@ -31,6 +31,11 @@ import {
   buildCommuneRef,
   matchesCommune,
   normLoc,
+  parseChargesDetail,
+  parseDpe,
+  parseGes,
+  synthesizeCharges,
+  modeGrade,
   parseAnnonces,
   parseMeuble,
   synthesizeMeuble,
@@ -588,4 +593,59 @@ Deno.test("buildCommuneRef : detecte l'arrondissement et son CP", () => {
   const v = buildCommuneRef("Boulogne-Billancourt", "92100");
   assertEquals(v.arr, null);
   assertEquals(v.villeNorm, "boulogne billancourt");
+});
+
+Deno.test("parseChargesDetail : Provisions pour charges X €/mois + fallback", () => {
+  assertEquals(parseChargesDetail("Provisions pour charges : 120 €/mois"), 120);
+  assertEquals(parseChargesDetail("Provisions pour charges récupérables estimées à 95 €/mois"), 95);
+  assertEquals(parseChargesDetail("Provision pour charges\n\n80 €"), 80); // valeur ligne suivante
+  assertEquals(parseChargesDetail("Charges forfaitaires 50 €/mois"), 50); // fallback parseCharges
+  assertEquals(parseChargesDetail("Loyer charges comprises (sans montant détaillé)"), null);
+});
+
+Deno.test("parseDpe / parseGes : lettre A-G apres le libelle", () => {
+  assertEquals(parseDpe("Diagnostic de performance énergétique (DPE)\n\n**D**\n145 kWh"), "D");
+  assertEquals(parseDpe("DPE : C"), "C");
+  assertEquals(parseDpe("Classe énergie\nB"), "B");
+  assertEquals(parseDpe("DPE en cours de réalisation"), null); // pas de lettre isolee
+  assertEquals(parseDpe("Bel appartement"), null);
+  assertEquals(parseGes("Gaz à effet de serre (GES) : E"), "E");
+  assertEquals(parseGes("GES\n\nA"), "A");
+});
+
+Deno.test("detailResult : charges/HC + DPE/GES, ignore charges >= loyer", () => {
+  const r = detailResult(900, 50, "Provisions pour charges : 60 €/mois. DPE : D. GES : B.");
+  assertEquals(r.charges, 60);
+  assertEquals(r.loyer_hc, 840);
+  assertEquals(r.prix_m2_hc, 16.8);
+  assertEquals(r.dpe, "D");
+  assertEquals(r.ges, "B");
+  // montant douteux (>= loyer, ex parking cite) -> ignore
+  const r2 = detailResult(800, 40, "Loue place de parking 1 200 € ... charges comprises");
+  assertEquals(r2.charges, null);
+  assertEquals(r2.loyer_hc, null);
+});
+
+Deno.test("modeGrade : DPE le plus frequent (ignore vides/invalides)", () => {
+  assertEquals(modeGrade(["D", "D", "C", null, "x", "D"]), "D");
+  assertEquals(modeGrade([null, undefined, ""]), null);
+});
+
+Deno.test("synthesizeCharges : charges reelles vs estimees + HC pondere", () => {
+  const rows = [
+    { surface: 50, typologie: "T2", loyer_cc: 1000, charges: 100, dpe: "D" }, // reel : 2 €/m²
+    { surface: 50, typologie: "T2", loyer_cc: 1000, charges: null, dpe: "D" }, // estime
+    { surface: 30, typologie: "T1", loyer_cc: 600, charges: null, dpe: "C" }, // estime
+  ];
+  const s = synthesizeCharges(rows);
+  assertEquals(s.ratio_m2_moyen, 2); // 100 / 50
+  assertEquals(s.nb_charges_reelles, 1);
+  assertEquals(s.dpe_frequent, "D");
+  const t2 = s.parTypologie.T2!;
+  assertEquals(t2.charges_m2_moyen, 2); // sur l'annonce reelle uniquement
+  assertEquals(t2.charges_moyen, 100);
+  assertEquals(t2.nb_charges_reelles, 1);
+  assertEquals(t2.nb_charges_estimees, 1);
+  // HC pondere T2 : ann1 (1000-100)/50 + ann2 estimee (1000-100)/50 = 1800 € / 100 m² = 18 €/m²
+  assertEquals(t2.loyer_hc_m2_pondere, 18);
 });

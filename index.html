@@ -443,6 +443,17 @@ function eaError(msg){return '<div class="card" style="padding:28px"><div style=
 /* ====== FICHE D'ETUDE COMPLETE (loyers reels + charges estimees + INSEE) ====== */
 var EA_SUPA="https://wywndgujgtyyzzhviagu.supabase.co/rest/v1";
 var EA_MAX=100; /* plafond annonces location (4 pages max), fixe */
+var EA_DETAIL_MAX=25; /* echantillon scrape en detail (charges/DPE) */
+var EA_DETAIL_BATCH=5; /* lots de detail par appel (front pilote la boucle) */
+/* echantillon <=maxN reparti en round-robin sur les typologies */
+function eaPickSample(annonces,maxN){maxN=maxN||25;
+var groups={},order=[];
+annonces.forEach(function(a){if(!a||!a.url)return;var t=a.typologie||"autre";if(!groups[t]){groups[t]=[];order.push(t)}groups[t].push(a)});
+var out=[],i=0,added=true;
+while(out.length<maxN&&added){added=false;
+for(var k=0;k<order.length;k++){var g=groups[order[k]];if(g[i]){out.push(g[i]);added=true;if(out.length>=maxN)break}}
+i++}
+return out}
 var eaFD=null; /* etat fiche : {res, insee, ratio, ref, _stats} */
 function eaNc(){return '<div class="v nc">n.c.</div>'}
 /* population live (geo.api) + socio-eco (table insee_communes), tolerant */
@@ -495,11 +506,13 @@ if(g){var dp=Math.round((g-ref)/ref*1000)/10,cls=Math.abs(dp)<2?"eq":(dp>0?"up":
 cmp='<div class="ea-sec"><h3><span class="ic">&#127919;</span> Comparaison au marché national</h3><div class="ea-cmp"><div><div style="font-size:12px;color:var(--soft);text-transform:uppercase;font-weight:700">Loyer CC moyen &middot; '+eaEsc(res.ville)+'</div><div class="big" data-count="'+g+'" data-dec="1" data-suf=" €">'+e1(g)+' &euro;</div><div style="font-size:12px;color:var(--soft)">&euro;/m&sup2;/mois</div></div><div class="ea-badge '+cls+'">'+ar+' '+(dp>0?'+':'')+e1(dp)+' %</div><div class="ea-note" style="flex:1;min-width:160px">'+(dp>0?'au-dessus de':(dp<0?'en-dessous de':'aligné sur'))+' la moyenne nationale (&asymp; '+e1(ref)+' &euro;/m&sup2;/mois en location).</div></div></div>'}
 var foot='<div class="ea-sec"><div class="ea-note">Étude générée le '+eaDate(res.scrapedAt)+' par <b>Elizabeth Holding</b> &middot; Loyers : annonces SeLoger pondérées par surface &middot; Charges estimées &middot; Données commune : INSEE. Document indicatif, non contractuel.</div></div>';
 fd._stats=stats;
-return '<div class="card ea-fichedoc" id="ea-fichedoc">'+head+tool+loyers+inseeBlk+cmp+foot+'</div>'}
+var cg=res.charges&&res.charges.global;
+var chargesBlk=(!vente&&cg)?'<div class="ea-sec"><h3><span class="ic">&#128176;</span> Charges &amp; DPE (échantillon détaillé)</h3><div class="ea-note">Charges relevées sur <b>'+(res.charges.nb_charges_reelles||0)+'/'+(res.charges.nb_total||0)+'</b> annonces de l\'échantillon'+(cg.charges_m2_moyen!=null?' &middot; charges moyennes <b>'+e1(cg.charges_m2_moyen)+' &euro;/m&sup2;/mois</b>':'')+(cg.loyer_hc_m2_pondere!=null?' &middot; loyer HC moyen <b>'+e1(cg.loyer_hc_m2_pondere)+' &euro;/m&sup2;/mois</b>':'')+(res.dpeFrequent?' &middot; DPE le plus fréquent <span class="ea-pill">'+eaEsc(res.dpeFrequent)+'</span>':'')+'. Le curseur « charges estimées » ci-dessus est initialisé sur la moyenne relevée ; les annonces sans montant sont estimées via ce ratio.</div></div>':'';
+return '<div class="card ea-fichedoc" id="ea-fichedoc">'+head+tool+loyers+chargesBlk+inseeBlk+cmp+foot+'</div>'}
 /* genere la fiche complete (fetch INSEE puis rendu anime) */
 function eaGenerateFiche(res){var z=document.getElementById("ea-fiche-zone");if(!z)return;
 z.innerHTML=eaProgress("Récupération des données INSEE de la commune…",null);
-eaFetchInsee(res.ville).then(function(insee){eaFD={res:res,insee:insee,ratio:2.5,ref:13.5};eaRenderFiche(true)})}
+eaFetchInsee(res.ville).then(function(insee){var ratio=(res.charges&&res.charges.ratio_m2_moyen!=null)?res.charges.ratio_m2_moyen:2.5;eaFD={res:res,insee:insee,ratio:ratio,ref:13.5};eaRenderFiche(true)})}
 function eaRenderFiche(animate){var z=document.getElementById("ea-fiche-zone");if(!z||!eaFD)return;
 z.innerHTML=eaBuildFiche(eaFD);
 var ri=document.getElementById("ea-ratio");if(ri)ri.oninput=function(){var v=parseFloat(ri.value);if(!isNaN(v)&&v>=0&&v<60){eaFD.ratio=v;eaUpdateCharges()}};
@@ -535,8 +548,10 @@ if(f.anneeMin)notes.push("année &ge; "+f.anneeMin);}
 var filtreLine=notes.length?'<div style="padding:0 24px 6px;color:var(--soft);font-size:13px">Filtres : '+notes.join(" &middot; ")+'</div>':'';
 if(j.note)filtreLine+='<div style="padding:0 24px 6px;color:#9a6700;font-size:13px">&#9888;&#65039; '+eaEsc(j.note)+'</div>';
 var communeLine=(j.horsCommune||j.recoltees)?'<div style="padding:8px 24px 2px;color:'+((j.horsCommune||0)>0?"#0a7a30":"var(--soft)")+';font-size:13px;font-weight:600">&#128205; '+nb+' annonce'+(nb>1?'s':'')+' retenue'+(nb>1?'s':'')+(j.recoltees?' sur '+j.recoltees+' récupérée'+(j.recoltees>1?'s':''):'')+' après filtre commune ('+eaEsc(j.ville)+')'+((j.horsCommune||0)>0?' &middot; '+j.horsCommune+' hors commune écartée'+(j.horsCommune>1?'s':''):'')+'</div>':'';
+var cg=j.charges&&j.charges.global;
+var chargesLine=(!vente&&cg)?'<div style="padding:2px 24px 6px;color:var(--soft);font-size:13px">&#128176; Charges relevées sur '+(j.charges.nb_charges_reelles||0)+'/'+(j.charges.nb_total||0)+' annonces'+(cg.charges_m2_moyen!=null?' &middot; moy. '+e1(cg.charges_m2_moyen)+' &euro;/m&sup2;/mois':'')+(cg.loyer_hc_m2_pondere!=null?' &middot; loyer HC moyen '+e1(cg.loyer_hc_m2_pondere)+' &euro;/m&sup2;':'')+(j.dpeFrequent?' &middot; DPE le plus fréquent : <b>'+eaEsc(j.dpeFrequent)+'</b>':'')+'</div>':'';
 var foot='<div style="padding:6px 24px 18px;color:var(--soft);font-size:13px">Source : SeLoger &middot; vue de vérification brute (chaque ligne ouvre l\'annonce). '+(j.inserted!=null?j.inserted+' annonce'+(j.inserted>1?'s':'')+' enregistrée'+(j.inserted>1?'s':'')+' en base.':'')+'</div>';
-return '<div class="card" id="ea-prefiche">'+head+communeLine+filtreLine+table+foot+'</div>'}
+return '<div class="card" id="ea-prefiche">'+head+communeLine+chargesLine+filtreLine+table+foot+'</div>'}
 /* badge Meuble/Non meuble + equivalent converti dans l'autre regime.
    Conversion sur le loyer HC si connu, sinon sur le CC (precise). Au survol
    (title) : le detail ; en mention secondaire : la valeur convertie. */
@@ -702,17 +717,36 @@ var b={};for(var k in body)b[k]=body[k];b.transaction="vente_neuf";delete b.anne
 return eaApi(b).then(function(res){if(res.done)return res;return eaNeufFlow(res,b,prefix)})}
 /* flux LOCATION complet (start -> pages -> finalize) -> Promise(resultat final) */
 function eaLocRun(body,prefix){prefix=prefix||"";
-eaResult.innerHTML=eaProgress(prefix+"Récupération des annonces SeLoger… (~15 s)",null);
+eaResult.innerHTML=eaProgress(prefix+"Récupération des annonces SeLoger… (~15 s) &middot; ≈ crédits : liste + jusqu'à "+EA_DETAIL_MAX+" détails",null);
 return eaApi(body).then(function(res){
 if(res.done)return res;
 var credits=res.creditsEstimes||1,seen={},all=[];
 /* compteurs filtre commune (anti-debordement) cumules sur start + pages */
 var recoltees=res.recoltees||0,horsCommune=res.horsCommune||0;
 eaCollect(all,seen,res.annonces);
-function finalize(){
+function runFinalize(){
 eaResult.innerHTML=eaProgress(prefix+"Synthèse location… ("+all.length+" annonces)",credits);
 return eaApi({phase:"finalize",ville:res.ville,quartier:body.quartier,transaction:body.transaction,annonces:all.slice(0,EA_MAX),credits:credits})
 .then(function(fin){if(res.note&&!fin.note)fin.note=res.note;fin.recoltees=recoltees;fin.horsCommune=horsCommune;return fin})}
+/* phase DETAIL : scrape charges/DPE sur un echantillon <=25 reparti par typo,
+   par lots de 5 (front), puis synthese. Location uniquement. */
+function finalize(){
+if(body.transaction=="vente")return runFinalize();
+var sample=eaPickSample(all.slice(0,EA_MAX),EA_DETAIL_MAX);
+if(!sample.length)return runFinalize();
+var bi=0;
+function detailStep(){
+if(bi>=sample.length)return runFinalize();
+var batch=sample.slice(bi,bi+EA_DETAIL_BATCH);bi+=batch.length;
+eaResult.innerHTML=eaProgress(prefix+"Détails (charges · DPE) : "+Math.min(bi,sample.length)+"/"+sample.length+"… (≈ "+credits+" crédits)",credits);
+return eaApi({phase:"loc-detail",items:batch.map(function(a){return {url:a.url,loyer_cc:a.loyer_cc,surface:a.surface}})})
+.then(function(r){credits+=(r.creditsEstimes||batch.length);
+(r.results||[]).forEach(function(d){for(var x=0;x<all.length;x++){if(all[x].url===d.url){var a=all[x];
+if(d.charges!=null){a.charges=d.charges;a.loyer_hc=d.loyer_hc;a.prix_m2_hc=d.prix_m2_hc}
+if(d.dpe)a.dpe=d.dpe;if(d.ges)a.ges=d.ges;break}}});
+return detailStep()})
+.catch(function(e){console.warn("etude-auto: lot détail en échec, on continue",e);return detailStep()})}
+return detailStep()}
 function next(pg){
 if(pg>(res.pagesPrevues||1)||all.length>=EA_MAX)return finalize();
 eaResult.innerHTML=eaProgress(prefix+"Annonces SeLoger : page "+pg+"/"+res.pagesPrevues+"… ("+all.length+" récupérées)",credits);
@@ -840,6 +874,15 @@ meuble:wM?Math.round(sM/wM*100)/100:null,meuble_source:oM>0?"observe":"estime",n
 var groups={};rows.forEach(function(r){var t=r.typologie||"autre";(groups[t]=groups[t]||[]).push(r)});
 var pt={};["T1","T2","T3","T4","T5","T6","autre"].forEach(function(t){if(groups[t])pt[t]=calc(groups[t])});
 return {parTypologie:pt,global:calc(rows),base:"CC",coefMeuble:1.15}}
+/* synthese charges/HC/DPE cote front (reouverture historique, 0 credit) */
+function eaSynthChargesFront(rows){
+var gCh=0,gSurf=0,gReel=0;rows.forEach(function(r){if(r.charges!=null&&r.surface>0&&(r.loyer_cc==null||r.charges<r.loyer_cc)){gCh+=r.charges;gSurf+=r.surface;gReel++}});
+var ratio=gSurf>0?Math.round(gCh/gSurf*100)/100:null;
+var sHc=0,sHcSurf=0;rows.forEach(function(r){if(!r.surface||r.loyer_cc==null)return;var c=(r.charges!=null&&r.charges<r.loyer_cc)?r.charges:(ratio!=null?Math.round(ratio*r.surface):null);if(c==null||c>=r.loyer_cc)return;sHc+=(r.loyer_cc-c);sHcSurf+=r.surface});
+var counts={},dpe=null,best=0;rows.forEach(function(r){var d=(r.dpe||"").toUpperCase();if(/^[A-G]$/.test(d))counts[d]=(counts[d]||0)+1});
+Object.keys(counts).forEach(function(k){if(counts[k]>best){best=counts[k];dpe=k}});
+var global={charges_m2_moyen:ratio,charges_moyen:gReel>0?Math.round(gCh/gReel):null,nb_charges_reelles:gReel,nb_charges_estimees:0,loyer_hc_m2_pondere:sHcSurf>0?Math.round(sHc/sHcSurf*100)/100:null,dpe_frequent:dpe};
+return {parTypologie:{},global:global,ratio_m2_moyen:ratio,nb_charges_reelles:gReel,nb_total:rows.length,dpe_frequent:dpe}}
 function eaSynthNeufFront(lots){
 function calc(arr){var n=0,ss=0,sp=0;arr.forEach(function(a){var su=+a.surface||(a.prix_total&&a.prix_m2?a.prix_total/a.prix_m2:0);
 if(a.prix_m2&&su>0){n++;ss+=su;sp+=a.prix_m2*su}});
@@ -853,7 +896,7 @@ var z=document.getElementById("hist-zone");if(!z)return;
 z.innerHTML='<div class="card" style="padding:28px;text-align:center;color:var(--soft)"><div class="spinner" style="width:26px;height:26px;border-width:3px;margin:0 auto 10px"></div>Chargement de l\'historique…</div>';
 var h={apikey:EA_KEY,Authorization:"Bearer "+EA_KEY};
 Promise.all([
-fetch(EA_SUPA+"/etudes_marche?source=in.(firecrawl,manuel)&transaction=in.(location,vente)&select=ville,quartier,scraped_at,titre,typologie,nb_pieces,surface,loyer_cc,charges,loyer_hc,prix_m2_cc,prix_m2_hc,url,code_postal,meuble,source,transaction,adresse,lat,lng&order=scraped_at.desc&limit=4000",{headers:h}).then(function(r){return r.ok?r.json():[]}).catch(function(){return[]}),
+fetch(EA_SUPA+"/etudes_marche?source=in.(firecrawl,manuel)&transaction=in.(location,vente)&select=ville,quartier,scraped_at,titre,typologie,nb_pieces,surface,loyer_cc,charges,loyer_hc,prix_m2_cc,prix_m2_hc,dpe,ges,url,code_postal,meuble,source,transaction,adresse,lat,lng&order=scraped_at.desc&limit=4000",{headers:h}).then(function(r){return r.ok?r.json():[]}).catch(function(){return[]}),
 fetch(EA_SUPA+"/programmes_neufs?select=*&order=scraped_at.desc&limit=3000",{headers:h}).then(function(r){return r.ok?r.json():[]}).catch(function(){return[]})
 ]).then(function(res){
 var groups={};
@@ -883,9 +926,9 @@ z.innerHTML='<div class="card"><div class="dl" style="margin-top:0;padding:18px"
 function eaHistOpen(i){
 var g=eaHistGroups&&eaHistGroups[i];if(!g)return;
 var loc=null,nf=null;
-if(g.loc.length){var sy=eaSynthLoc(g.loc,"location");
+if(g.loc.length){var sy=eaSynthLoc(g.loc,"location"),cs=eaSynthChargesFront(g.loc);
 loc={done:true,fromHistory:true,transaction:"location",ville:g.ville,quartier:g.quartier,scrapedAt:g.ts,creditsEstimes:0,
-annoncesRetenues:g.loc.length,annonces:g.loc,parTypologie:sy.parTypologie,global:sy.global,loyersMeuble:eaSynthMeubleFront(g.loc)}}
+annoncesRetenues:g.loc.length,annonces:g.loc,parTypologie:sy.parTypologie,global:sy.global,loyersMeuble:eaSynthMeubleFront(g.loc),charges:cs,dpeFrequent:cs.dpe_frequent}}
 if(g.neuf.length){var sn=eaSynthNeufFront(g.neuf);
 nf={done:true,fromHistory:true,transaction:"vente_neuf",ville:g.ville,quartier:g.quartier,scrapedAt:g.ts,creditsEstimes:0,
 annoncesRetenues:g.neuf.length,annonces:g.neuf,parTypologie:sn.parTypologie,global:sn.global}}

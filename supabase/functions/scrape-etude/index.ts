@@ -50,6 +50,7 @@ import {
   selogerCode,
   seoLocationUrl,
   synthesize,
+  synthesizeCharges,
   type Transaction,
   typologie,
   villeSlug,
@@ -78,7 +79,7 @@ const NEUF_LIST_PAGES = 4;
 const NEUF_CACHE_DAYS = 7;
 
 interface ReqBody {
-  phase?: "start" | "page" | "neuf-liste" | "neuf-detail" | "detail" | "finalize";
+  phase?: "start" | "page" | "neuf-liste" | "neuf-detail" | "detail" | "loc-detail" | "finalize";
   ville?: string;
   quartier?: string;
   transaction?: Transaction | "vente_neuf";
@@ -94,6 +95,9 @@ interface ReqBody {
   loyer_cc?: number;
   surface?: number;
   nb_pieces?: number;
+  // phase "loc-detail" : lot d'annonces a scraper en detail (charges/DPE)
+  // deno-lint-ignore no-explicit-any
+  items?: any[];
   // phase "finalize"
   // deno-lint-ignore no-explicit-any
   annonces?: any[];
@@ -144,11 +148,21 @@ async function resolveCity(ville: string) {
 // --- Firecrawl : 1 scrape simple (jamais de batch) ---------------------------
 // maxAge:0 OBLIGATOIRE : l'API v2 a un cache de scrape active par defaut
 // (~2 jours) -> sans lui, relancer une etude renvoyait la MEME page figee.
-async function fcScrape(url: string, key: string, formats: string[], waitFor: number): Promise<Record<string, unknown>> {
+async function fcScrape(
+  url: string,
+  key: string,
+  formats: string[],
+  waitFor: number,
+  opts?: { proxy?: string; timeout?: number },
+): Promise<Record<string, unknown>> {
+  const payload: Record<string, unknown> = { url, formats, waitFor, timeout: opts?.timeout ?? 45000, maxAge: 0 };
+  // proxy "auto" (plan payant) : indispensable pour charger les pages DETAIL
+  // SeLoger (sinon DataDome). Non utilise pour les pages liste (deja OK).
+  if (opts?.proxy) payload.proxy = opts.proxy;
   const r = await fetch(FC_SCRAPE, {
     method: "POST",
     headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ url, formats, waitFor, timeout: 45000, maxAge: 0 }),
+    body: JSON.stringify(payload),
   });
   if (!r.ok) throw new Error(`Firecrawl HTTP ${r.status}: ${(await r.text()).slice(0, 300)}`);
   const j = await r.json();
@@ -252,6 +266,7 @@ function toAnnonce(r: any) {
     prix_m2_cc: r.prix_m2_cc,
     prix_m2_hc: r.prix_m2_hc ?? null,
     dpe: r.dpe ?? null,
+    ges: r.ges ?? null,
     nature: r.nature ?? null,
     quartier: r.quartier,
     ville: r.ville,
@@ -280,6 +295,8 @@ function toInsertRow(a: any, transaction: Transaction, scrapedAt: string) {
     source: "firecrawl",
     titre: a.titre ?? null,
     meuble: a.meuble ?? null,
+    dpe: a.dpe ?? null,
+    ges: a.ges ?? null,
     scraped_at: scrapedAt,
   };
 }
@@ -705,6 +722,37 @@ async function handleDetail(body: ReqBody, env: Env): Promise<Response> {
 }
 
 // ============================================================================
+// PHASE "loc-detail" : scrape un LOT d'annonces (echantillon location) en
+// PARALLELE -> charges / loyer_hc / prix_m2_hc / DPE / GES par annonce.
+// Le front pilote la boucle (lots de ~5) pour afficher "Charges k/25" et rester
+// loin de WORKER_RESOURCE_LIMIT. proxy "auto" (plan payant) requis pour les
+// pages detail SeLoger. Echec d'UNE annonce -> n/d, les autres continuent.
+// ============================================================================
+const LOC_DETAIL_BATCH = 8; // garde-fou serveur (le front envoie ~5)
+async function handleLocDetail(body: ReqBody, env: Env): Promise<Response> {
+  const items = Array.isArray(body.items) ? body.items.slice(0, LOC_DETAIL_BATCH) : [];
+  if (!items.length) return json({ error: "items manquants" }, 400);
+  const results = await Promise.all(items.map(async (it) => {
+    const url = String(it?.url || "");
+    if (!url) return null;
+    const loyerCc = num(it.loyer_cc);
+    const surface = num(it.surface);
+    try {
+      const data = await fcScrape(url, env.fcKey, ["markdown"], 4000, { proxy: "auto", timeout: 60000 });
+      const md = typeof data.markdown === "string" ? data.markdown : "";
+      const d = detailResult(loyerCc, surface, md);
+      return { url, ...d };
+    } catch (e) {
+      console.error("[loc-detail] echec :", url, e instanceof Error ? e.message : e);
+      return { url, charges: null, loyer_hc: null, prix_m2_cc: null, prix_m2_hc: null, dpe: null, ges: null };
+    }
+  }));
+  const out = results.filter(Boolean);
+  console.log(`[loc-detail] ${out.length} pages, ${out.filter((r) => r && r.charges != null).length} avec charges`);
+  return json({ phase: "loc-detail", results: out, creditsEstimes: items.length });
+}
+
+// ============================================================================
 // PHASE "finalize" : 0 scrape -> synthese + insertion
 // ============================================================================
 async function handleFinalize(body: ReqBody, env: Env): Promise<Response> {
@@ -722,12 +770,18 @@ async function handleFinalize(body: ReqBody, env: Env): Promise<Response> {
     console.error("[finalize] insert echec :", e instanceof Error ? e.message : e);
   }
   const s = synthesize(annonces, transaction);
+  // Synthese charges / loyer HC / DPE (a partir de l'echantillon scrape en
+  // detail : charges reelles la ou trouvees, HC estime via le ratio moyen pour
+  // le reste). Location uniquement.
+  const charges = transaction === "location" ? synthesizeCharges(annonces) : null;
   return json({
     done: true, scrapedAt,
     ville: ville || null, quartier: quartier || null, transaction,
     annoncesRetenues: annonces.length, annonces: annonces.map(toAnnonce),
     parTypologie: s.parTypologie, global: s.global,
     loyersMeuble: transaction === "location" ? synthesizeMeuble(annonces) : null,
+    charges,
+    dpeFrequent: charges ? charges.dpe_frequent : null,
     creditsEstimes: num(body.credits) ?? 0, // comptes par le front (1/page + resolution)
   });
 }
@@ -755,6 +809,7 @@ Deno.serve(async (req: Request) => {
     if (body.phase === "page") return await handlePage(body, env);
     if (body.phase === "neuf-liste") return await handleNeufListe(body, env);
     if (body.phase === "neuf-detail") return await handleNeufDetail(body, env);
+    if (body.phase === "loc-detail") return await handleLocDetail(body, env);
     if (body.phase === "detail") return await handleDetail(body, env);
     if (body.phase === "finalize") {
       return body.transaction === "vente_neuf" ? await handleFinalizeNeuf(body, env) : await handleFinalize(body, env);
