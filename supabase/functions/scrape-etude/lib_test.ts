@@ -28,6 +28,9 @@ import {
   matchesTypologies,
   parseTypologies,
   mergeCharges,
+  buildCommuneRef,
+  matchesCommune,
+  normLoc,
   parseAnnonces,
   parseMeuble,
   synthesizeMeuble,
@@ -541,4 +544,48 @@ Deno.test("parseTypologies / matchesTypologies : choix multiple", () => {
   assertEquals(matchesTypologies(2, ["T1", "T3"]), false);
   assertEquals(matchesTypologies(3, ["T1", "T3"]), true);
   assertEquals(matchesTypologies(2, null), true); // pas de filtre
+});
+
+Deno.test("normLoc : minuscules, sans accents, separateurs unifies", () => {
+  assertEquals(normLoc("Boulogne-Billancourt"), "boulogne billancourt");
+  assertEquals(normLoc("Boulogne   Billancourt"), "boulogne billancourt");
+  assertEquals(normLoc("L'Haÿ-les-Roses"), "l hay les roses");
+  assertEquals(normLoc(null), "");
+});
+
+Deno.test("matchesCommune : commune simple -> rejette les communes voisines", () => {
+  const ref = buildCommuneRef("Boulogne-Billancourt", "92100");
+  // bon : titre ou URL portant la commune (slug URL = ".../boulogne-billancourt-92/...")
+  assertEquals(matchesCommune("Appartement à louer - Boulogne-Billancourt - 2 pièces", null, ref), true);
+  assertEquals(matchesCommune(null, "https://www.seloger.com/annonces/locations/appartement/boulogne-billancourt-92/x/1.htm", ref), true);
+  assertEquals(matchesCommune("Boulogne Billancourt centre", null, ref), true); // variante sans tiret
+  // CP exact
+  assertEquals(matchesCommune("Joli T2 - 92100", null, ref), true);
+  // debordement : Issy, Paris -> rejetes
+  assertEquals(matchesCommune("Appartement Issy-les-Moulineaux 3 pièces", "https://www.seloger.com/annonces/locations/appartement/issy-les-moulineaux-92/y/2.htm", ref), false);
+  assertEquals(matchesCommune("Studio Paris 16ème arrondissement", "https://www.seloger.com/.../paris-16eme-75016/z/3.htm", ref), false);
+  assertEquals(matchesCommune("Appartement 3 pièces", null, ref), false); // aucun lieu -> rejet
+});
+
+Deno.test("matchesCommune : arrondissement -> uniquement le bon arrondissement", () => {
+  const ref = buildCommuneRef("Paris 8e", "75008");
+  assertEquals(matchesCommune("Appartement Paris 8ème", null, ref), true);
+  assertEquals(matchesCommune("Paris 8e - studio", null, ref), true);
+  assertEquals(matchesCommune("Loft - Paris 8 arrondissement", null, ref), true);
+  assertEquals(matchesCommune(null, "https://www.seloger.com/.../paris-8eme-75008/x/1.htm", ref), true);
+  assertEquals(matchesCommune("Bien - 75008 Paris", null, ref), true);
+  // autres arrondissements -> rejetes (pas de confusion 8 / 18 / 28 / 80)
+  assertEquals(matchesCommune("Appartement Paris 18ème", null, ref), false);
+  assertEquals(matchesCommune("Studio Paris 16e", null, ref), false);
+  assertEquals(matchesCommune(null, "https://www.seloger.com/.../paris-16eme-75016/x/1.htm", ref), false);
+  assertEquals(matchesCommune("Maison Issy-les-Moulineaux", null, ref), false);
+});
+
+Deno.test("buildCommuneRef : detecte l'arrondissement et son CP", () => {
+  const a = buildCommuneRef("Paris 8e", null);
+  assertEquals(a.arr?.arr, 8);
+  assertEquals(a.cp, "75008"); // CP deduit de l'arrondissement si non fourni
+  const v = buildCommuneRef("Boulogne-Billancourt", "92100");
+  assertEquals(v.arr, null);
+  assertEquals(v.villeNorm, "boulogne billancourt");
 });

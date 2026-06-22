@@ -27,8 +27,10 @@ import {
   arrSlug,
   parseArrondissement,
   buildClassifiedUrl,
+  buildCommuneRef,
   buildListUrl,
   cutProximity,
+  matchesCommune,
   detailResult,
   extractCityCode,
   isColocation,
@@ -319,6 +321,8 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   const city = await resolveCityOrArr(ville);
   if (!city || !city.citycode) return json({ error: "ville introuvable" }, 404);
   console.log(`[start] ${city.nom} (INSEE ${city.citycode})`);
+  // Filtre commune STRICT (anti-debordement "et alentours" de SeLoger).
+  const communeRef = buildCommuneRef(city.nom, city.codePostal);
 
   // Code lieu classified-search : cache seloger_places, sinon 1 scrape SEO.
   // Arrondissement : la page SEO immo-paris-8eme-75 donne le code AD09FR..
@@ -357,6 +361,11 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   const scrapedAt = new Date().toISOString();
   const ctx = { ville: city.nom, quartier: quartier || null, code_postal: city.codePostal, transaction, scrapedAt };
   let rows: Row[] = raw.map((a) => annonceToRow(a, ctx)).filter((r): r is Row => r !== null && !!r.url);
+  // Filtre commune AVANT les autres filtres : on compte le debordement ecarte.
+  const recoltees = rows.length;
+  rows = rows.filter((r) => matchesCommune(r.titre, r.url, communeRef));
+  const horsCommune = recoltees - rows.length;
+  if (horsCommune) console.log(`[start] filtre commune : ${rows.length}/${recoltees} retenues (${horsCommune} hors ${city.nom})`);
   rows = applyFilters(rows, !anneeServerSide).slice(0, MAX_ITEMS);
   const partielles = rows.map(toAnnonce);
   console.log(`[start] ${partielles.length} annonces retenues (page 1)`);
@@ -370,7 +379,7 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
       done: false, creditsEstimes: credits, scrapedAt, fcCache,
       ville: city.nom, quartier: quartier || null, codePostal: city.codePostal,
       transaction, code, searchUrl, filtres, pagesPrevues,
-      annonces: partielles, note,
+      annonces: partielles, note, recoltees, horsCommune,
     });
   }
 
@@ -381,7 +390,10 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
       done: true, creditsEstimes: credits, scrapedAt, fcCache,
       ville: city.nom, quartier: quartier || null, transaction, searchUrl, filtres,
       annoncesRetenues: 0, annonces: [], parTypologie: {}, global: null, note,
-      message: "Aucune annonce exploitable (autre ville/transaction, retirez des filtres).",
+      recoltees, horsCommune,
+      message: horsCommune > 0
+        ? `Aucune annonce dans ${city.nom} : les ${horsCommune} annonces récupérées concernaient des communes/arrondissements voisins (écartés).`
+        : "Aucune annonce exploitable (autre ville/transaction, retirez des filtres).",
     });
   }
   await insertRows(env, partielles.map((a) => toInsertRow(a, transaction, scrapedAt))).catch((e) => console.error("[start] insert:", e));
@@ -390,6 +402,7 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
     done: true, creditsEstimes: credits, scrapedAt, fcCache,
     ville: city.nom, quartier: quartier || null, transaction, searchUrl, filtres,
     annoncesRetenues: partielles.length, annonces: partielles, note,
+    recoltees, horsCommune,
     parTypologie: s.parTypologie, global: s.global,
     loyersMeuble: transaction === "location" ? synthesizeMeuble(partielles) : null,
   });
@@ -418,10 +431,16 @@ async function handlePage(body: ReqBody, env: Env): Promise<Response> {
   const scrapedAt = new Date().toISOString();
   const ctx = { ville, quartier: quartier || null, code_postal: body.codePostal || null, transaction, scrapedAt };
   let rows: Row[] = raw.map((a) => annonceToRow(a, ctx)).filter((r): r is Row => r !== null && !!r.url);
+  // Filtre commune STRICT (meme regle qu'en phase "start"), avant les autres.
+  const communeRef = buildCommuneRef(ville, body.codePostal || null);
+  const recoltees = rows.length;
+  rows = rows.filter((r) => matchesCommune(r.titre, r.url, communeRef));
+  const horsCommune = recoltees - rows.length;
   // annee deja filtree cote serveur (classified) -> applyAnnee=false
   rows = makeFilters(typoFilter, anneeMin, transaction)(rows, false);
+  if (horsCommune) console.log(`[page ${page}] filtre commune : ${horsCommune} hors ${ville} ecartees`);
   console.log(`[page ${page}] ${rows.length} annonces retenues`);
-  return json({ phase: "page", page, creditsEstimes: 1, annonces: rows.map(toAnnonce) });
+  return json({ phase: "page", page, creditsEstimes: 1, annonces: rows.map(toAnnonce), recoltees, horsCommune });
 }
 
 // ============================================================================
@@ -472,8 +491,16 @@ async function handleStartNeuf(body: ReqBody, env: Env): Promise<Response> {
   // Arrondissement : filtre STRICT sur le slug (la liste Paris 8e est completee
   // par des programmes voisins type Clichy qu'il ne faut pas prendre).
   const slug = city.arr ? arrSlug(city.arr) : villeSlug(city.nom);
-  const programmes = neufProgramLinks(data.links, slug, !!city.arr);
+  // Filtre commune STRICT : le slug de l'URL programme porte la commune
+  // (.../programme/boulogne-billancourt-92/... , .../paris-8eme-75008/...) ->
+  // on ecarte les programmes des communes/arrondissements voisins.
+  const communeRef = buildCommuneRef(city.nom, city.codePostal);
+  const programmesRaw = neufProgramLinks(data.links, slug, !!city.arr);
+  const programmes = programmesRaw.filter((u) => matchesCommune(null, u, communeRef));
   const totalProgrammes = num(md.match(/(\d[\d  ]*)\s*programmes/i)?.[1]?.replace(/\s/g, "")) ?? null;
+  if (programmesRaw.length !== programmes.length) {
+    console.log(`[neuf] filtre commune : ${programmes.length}/${programmesRaw.length} programmes (${programmesRaw.length - programmes.length} hors ${city.nom})`);
+  }
   console.log(`[neuf] ${programmes.length} programmes (total annonce : ${totalProgrammes})`);
 
   const scrapedAt = new Date().toISOString();
@@ -512,6 +539,7 @@ async function handleStartNeuf(body: ReqBody, env: Env): Promise<Response> {
   const cachedAnnonces = cachedUrls
     .flatMap((u) => byUrl.get(u)!)
     .filter((r) => matchesTypologies(r.nb_pieces, typoFilter))
+    .filter((r) => matchesCommune(r.nom_programme, r.url, communeRef, r.adresse))
     // deno-lint-ignore no-explicit-any
     .map((r: any) => ({
       ville: r.ville, quartier: r.quartier, code_postal: r.code_postal, transaction: "vente_neuf",
@@ -579,10 +607,29 @@ async function handleFinalizeNeuf(body: ReqBody, env: Env): Promise<Response> {
   let annonces = Array.isArray(body.annonces) ? body.annonces : [];
   if (!annonces.length) return json({ error: "annonces manquantes" }, 400);
 
+  // Filtre commune STRICT (anti-debordement geographique) : ne garder que les
+  // lots du lieu demande, via adresse ("92100 Boulogne-Billancourt"), slug
+  // d'URL ou code postal. Recalcule la fiche UNIQUEMENT sur ces lots.
+  const communeRef = buildCommuneRef(ville, null);
+  const recoltees = annonces.length;
+  annonces = annonces.filter((a) => matchesCommune(a.nom_programme, a.url, communeRef, a.adresse));
+  const horsCommune = recoltees - annonces.length;
+  let note: string | null = horsCommune > 0
+    ? `${horsCommune} lot(s) hors ${ville} (communes/arrondissements voisins) écartés.`
+    : null;
+  if (!annonces.length) {
+    return json({
+      done: true, transaction: "vente_neuf", scrapedAt: new Date().toISOString(),
+      ville: ville || null, quartier: quartier || null, recoltees, horsCommune,
+      annoncesRetenues: 0, annonces: [], parTypologie: {}, global: null,
+      creditsEstimes: num(body.credits) ?? 0,
+      message: `Aucun programme neuf dans ${ville} : les ${recoltees} lot(s) récupéré(s) concernaient des communes/arrondissements voisins (écartés).`,
+    });
+  }
+
   // Quartier (hors arrondissement) : SeLoger Neuf ne cible pas les quartiers ->
   // filtre best-effort sur l'adresse / le nom du programme. Si rien ne matche,
   // on garde tout avec une note explicite.
-  let note: string | null = null;
   if (quartier) {
     const q = villeSlug(quartier);
     const match = annonces.filter((a) =>
@@ -629,7 +676,7 @@ async function handleFinalizeNeuf(body: ReqBody, env: Env): Promise<Response> {
   const s = synthesize(stat, "vente");
   return json({
     done: true, transaction: "vente_neuf", scrapedAt, note,
-    ville: ville || null, quartier: quartier || null,
+    ville: ville || null, quartier: quartier || null, recoltees, horsCommune,
     annoncesRetenues: annonces.length, annonces,
     parTypologie: s.parTypologie, global: s.global,
     creditsEstimes: num(body.credits) ?? 0,

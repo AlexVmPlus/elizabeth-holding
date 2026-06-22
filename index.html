@@ -534,8 +534,9 @@ if(f.typologie)notes.push("typologie "+f.typologie);
 if(f.anneeMin)notes.push("année &ge; "+f.anneeMin);}
 var filtreLine=notes.length?'<div style="padding:0 24px 6px;color:var(--soft);font-size:13px">Filtres : '+notes.join(" &middot; ")+'</div>':'';
 if(j.note)filtreLine+='<div style="padding:0 24px 6px;color:#9a6700;font-size:13px">&#9888;&#65039; '+eaEsc(j.note)+'</div>';
+var communeLine=(j.horsCommune||j.recoltees)?'<div style="padding:8px 24px 2px;color:'+((j.horsCommune||0)>0?"#0a7a30":"var(--soft)")+';font-size:13px;font-weight:600">&#128205; '+nb+' annonce'+(nb>1?'s':'')+' retenue'+(nb>1?'s':'')+(j.recoltees?' sur '+j.recoltees+' récupérée'+(j.recoltees>1?'s':''):'')+' après filtre commune ('+eaEsc(j.ville)+')'+((j.horsCommune||0)>0?' &middot; '+j.horsCommune+' hors commune écartée'+(j.horsCommune>1?'s':''):'')+'</div>':'';
 var foot='<div style="padding:6px 24px 18px;color:var(--soft);font-size:13px">Source : SeLoger &middot; vue de vérification brute (chaque ligne ouvre l\'annonce). '+(j.inserted!=null?j.inserted+' annonce'+(j.inserted>1?'s':'')+' enregistrée'+(j.inserted>1?'s':'')+' en base.':'')+'</div>';
-return '<div class="card" id="ea-prefiche">'+head+filtreLine+table+foot+'</div>'}
+return '<div class="card" id="ea-prefiche">'+head+communeLine+filtreLine+table+foot+'</div>'}
 /* badge Meuble/Non meuble + equivalent converti dans l'autre regime.
    Conversion sur le loyer HC si connu, sinon sur le CC (precise). Au survol
    (title) : le detail ; en mention secondaire : la valeur convertie. */
@@ -597,8 +598,9 @@ return '<tr'+(u?' class="ea-rowlink" data-url="'+eaEsc(u)+'"':'')+'>'
 +'<td>'+(a.tva?'<span class="ea-pill">'+eaEsc(a.tva)+'</span>':nd)+'</td>'
 +'<td>'+(u?'<a href="'+eaEsc(u)+'" target="_blank" rel="noopener" class="ea-link">Voir &rarr;</a>':"-")+'</td></tr>'}).join("");
 var table='<div class="dl" style="margin-top:0;padding:0 18px 14px"><div style="max-height:540px;overflow:auto;border:1px solid var(--line);border-radius:12px"><table><thead><tr><th>Programme</th><th>Type</th><th>Surface</th><th>Prix</th><th>Prix/m&sup2;</th><th>Livraison</th><th>TVA</th><th></th></tr></thead><tbody>'+body+'</tbody></table></div></div>';
+var communeLine=(j.horsCommune||j.recoltees)?'<div style="padding:8px 24px 2px;color:'+((j.horsCommune||0)>0?"#0a7a30":"var(--soft)")+';font-size:13px;font-weight:600">&#128205; '+lots.length+' lot'+(lots.length>1?'s':'')+' retenu'+(lots.length>1?'s':'')+(j.recoltees?' sur '+j.recoltees+' récupéré'+(j.recoltees>1?'s':''):'')+' après filtre commune ('+eaEsc(j.ville)+')'+((j.horsCommune||0)>0?' &middot; '+j.horsCommune+' hors commune écarté'+(j.horsCommune>1?'s':''):'')+'</div>':'';
 var foot='<div style="padding:6px 24px 18px;color:var(--soft);font-size:13px">Source : SeLoger Neuf &middot; lots affichés par le promoteur (échantillon par typologie) &middot; chaque ligne ouvre le programme.</div>';
-return '<div class="card" id="ea-prefiche">'+head+table+foot+'</div>'}
+return '<div class="card" id="ea-prefiche">'+head+communeLine+table+foot+'</div>'}
 function eaShowResultNeuf(res){
 var lots=res.annonces||[],progSet={};lots.forEach(function(a){progSet[a.nom_programme||a.url||"?"]=1});
 var nbProg=Object.keys(progSet).length;
@@ -704,16 +706,18 @@ eaResult.innerHTML=eaProgress(prefix+"Récupération des annonces SeLoger… (~1
 return eaApi(body).then(function(res){
 if(res.done)return res;
 var credits=res.creditsEstimes||1,seen={},all=[];
+/* compteurs filtre commune (anti-debordement) cumules sur start + pages */
+var recoltees=res.recoltees||0,horsCommune=res.horsCommune||0;
 eaCollect(all,seen,res.annonces);
 function finalize(){
 eaResult.innerHTML=eaProgress(prefix+"Synthèse location… ("+all.length+" annonces)",credits);
 return eaApi({phase:"finalize",ville:res.ville,quartier:body.quartier,transaction:body.transaction,annonces:all.slice(0,EA_MAX),credits:credits})
-.then(function(fin){if(res.note&&!fin.note)fin.note=res.note;return fin})}
+.then(function(fin){if(res.note&&!fin.note)fin.note=res.note;fin.recoltees=recoltees;fin.horsCommune=horsCommune;return fin})}
 function next(pg){
 if(pg>(res.pagesPrevues||1)||all.length>=EA_MAX)return finalize();
 eaResult.innerHTML=eaProgress(prefix+"Annonces SeLoger : page "+pg+"/"+res.pagesPrevues+"… ("+all.length+" récupérées)",credits);
 return eaApi({phase:"page",page:pg,code:res.code,ville:res.ville,codePostal:res.codePostal,transaction:body.transaction,typologies:body.typologies,anneeMin:body.anneeMin})
-.then(function(r){credits+=(r.creditsEstimes||1);
+.then(function(r){credits+=(r.creditsEstimes||1);recoltees+=r.recoltees||0;horsCommune+=r.horsCommune||0;
 var fresh=eaCollect(all,seen,r.annonces);
 if(!fresh){console.warn("etude-auto: page "+pg+" -> aucune annonce nouvelle (doublons) : arrêt de la pagination");return finalize()}
 return next(pg+1)})

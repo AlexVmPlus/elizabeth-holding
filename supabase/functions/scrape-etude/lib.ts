@@ -641,6 +641,67 @@ export function matchesAnnee(titre: string | null | undefined, anneeMin: number 
 }
 
 // ----------------------------------------------------------------------------
+// FILTRE COMMUNE / ARRONDISSEMENT (anti-debordement geographique).
+// SeLoger elargit la recherche aux communes/arrondissements limitrophes
+// ("et alentours") : une recherche Boulogne-Billancourt renvoie aussi Issy,
+// Paris 16e... ce qui pollue les moyennes. On filtre STRICTEMENT chaque annonce
+// sur le lieu demande, via son titre + son URL (le slug d'URL SeLoger porte la
+// commune : ".../appartement/boulogne-billancourt-92/.../id.htm" ;
+// ".../programme/paris-8eme-75008/...") et, quand present, le code postal exact.
+// ----------------------------------------------------------------------------
+
+// Normalise un texte pour comparaison de lieu : minuscules, sans accents, tout
+// caractere non alphanumerique -> espace simple ("Boulogne-Billancourt" et
+// "Boulogne Billancourt" -> "boulogne billancourt").
+export function normLoc(s: string | null | undefined): string {
+  return (s || "")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export interface CommuneRef {
+  arr: Arrondissement | null; // arrondissement demande (Paris/Lyon/Marseille)
+  villeNorm: string; // nom de commune normalise ("boulogne billancourt")
+  cp: string | null; // code postal demande ("92100" / "75008")
+}
+
+// Reference de lieu a partir de la ville saisie (ou du libelle d'arrondissement
+// "Paris 8e") et du code postal resolu.
+export function buildCommuneRef(ville: string, codePostal: string | null): CommuneRef {
+  const arr = parseArrondissement(ville);
+  return {
+    arr,
+    villeNorm: normLoc(arr ? arr.ville : ville),
+    cp: codePostal || (arr ? arrCodePostal(arr) : null),
+  };
+}
+
+// L'annonce (titre + URL, + texte libre eventuel : adresse, nom programme)
+// correspond-elle VRAIMENT au lieu demande ? true = on garde, false =
+// debordement geographique a ecarter.
+export function matchesCommune(
+  titre: string | null | undefined,
+  url: string | null | undefined,
+  ref: CommuneRef,
+  extra?: string | null,
+): boolean {
+  const hay = normLoc([titre, url, extra].filter(Boolean).join(" "));
+  if (!hay) return false;
+  // 1. Code postal exact = signal le plus fiable (entoure de non-chiffres).
+  if (ref.cp && new RegExp(`(?<![0-9])${ref.cp}(?![0-9])`).test(hay)) return true;
+  // 2. Arrondissement : exige "<ville> <n>" (8 / 8e / 8eme...) sans confondre
+  //    avec 18 / 28 / 80 (lookahead negatif sur un chiffre).
+  if (ref.arr) {
+    return new RegExp(`${normLoc(ref.arr.ville)}\\s*0?${ref.arr.arr}(?![0-9])`).test(hay);
+  }
+  // 3. Commune simple : le nom complet doit apparaitre (tirets/espaces geres).
+  return ref.villeNorm.length > 1 && hay.includes(ref.villeNorm);
+}
+
+// ----------------------------------------------------------------------------
 // Synthese : prix/m2 PONDERE PAR SURFACE, par typologie T1..T6 + global.
 // Accepte tout objet ayant les champs de stats (Row ou annonce fusionnee).
 // ----------------------------------------------------------------------------
