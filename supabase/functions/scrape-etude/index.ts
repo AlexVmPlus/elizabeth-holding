@@ -80,7 +80,8 @@ interface ReqBody {
   ville?: string;
   quartier?: string;
   transaction?: Transaction | "vente_neuf";
-  typologie?: string;
+  typologies?: string[]; // tableau envoye par le front (["T2"]) ; [] = toutes
+  typologie?: string; // compat retro (CSV) — parseTypologies accepte les deux
   anneeMin?: number | string;
   // phase "page"
   code?: string;
@@ -308,7 +309,7 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   const ville = (body.ville || "").trim();
   const quartier = (body.quartier || "").trim();
   const transaction: Transaction = body.transaction === "vente" ? "vente" : "location";
-  const typoFilter = parseTypologies(body.typologie);
+  const typoFilter = parseTypologies(body.typologies ?? body.typologie);
   const anneeMin = num(body.anneeMin);
   if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
 
@@ -404,7 +405,7 @@ async function handlePage(body: ReqBody, env: Env): Promise<Response> {
   const ville = (body.ville || "").trim();
   const quartier = (body.quartier || "").trim();
   const transaction: Transaction = body.transaction === "vente" ? "vente" : "location";
-  const typoFilter = parseTypologies(body.typologie);
+  const typoFilter = parseTypologies(body.typologies ?? body.typologie);
   const anneeMin = num(body.anneeMin);
   if (!code || !ville) return json({ error: "code lieu et ville obligatoires" }, 400);
 
@@ -458,7 +459,7 @@ function neufUnitToRow(u: any, meta: any, ctx: { ville: string; quartier: string
 async function handleStartNeuf(body: ReqBody, env: Env): Promise<Response> {
   const ville = (body.ville || "").trim();
   const quartier = (body.quartier || "").trim();
-  const typoFilter = parseTypologies(body.typologie);
+  const typoFilter = parseTypologies(body.typologies ?? body.typologie);
   if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
   const city = await resolveCityOrArr(ville);
   if (!city || !city.citycode) return json({ error: "ville introuvable" }, 404);
@@ -551,7 +552,7 @@ async function handleNeufDetail(body: ReqBody, env: Env): Promise<Response> {
   const ville = (body.ville || "").trim();
   const quartier = (body.quartier || "").trim();
   if (!url || !ville) return json({ error: "url et ville obligatoires" }, 400);
-  const typoFilter = parseTypologies(body.typologie);
+  const typoFilter = parseTypologies(body.typologies ?? body.typologie);
   try {
     const data = await fcScrape(url, env.fcKey, ["markdown"], 6000);
     const md = typeof data.markdown === "string" ? data.markdown : "";

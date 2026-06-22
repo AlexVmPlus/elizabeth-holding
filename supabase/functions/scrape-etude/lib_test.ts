@@ -477,12 +477,18 @@ Deno.test("parseNeufMeta : TVA 5,5% detectee, sinon 20%", () => {
   assertEquals(parseNeufMeta("# X\n\nLMNP PTZ").tva, "20%");
 });
 
-Deno.test("parseMeuble : detection meuble (defaut non meuble)", () => {
+Deno.test("parseMeuble : tri-state (meuble / non meuble / indetermine)", () => {
   assertEquals(parseMeuble("Appartement meublé à louer - Bordeaux"), true);
   assertEquals(parseMeuble("Studio meuble lumineux"), true);
   assertEquals(parseMeuble("Appartement non meublé"), false);
-  assertEquals(parseMeuble("Appartement 3 pièces"), false);
-  assertEquals(parseMeuble(null), false);
+  // "non meublé" doit etre teste AVANT "meublé" (sinon matchait true = ancien bug)
+  assertEquals(parseMeuble("NON-MEUBLÉ charges comprises"), false);
+  assertEquals(parseMeuble("Appartement non-meuble"), false);
+  // pas de mention -> indetermine (null), PAS un faux "non meuble"
+  assertEquals(parseMeuble("Appartement 3 pièces"), null);
+  assertEquals(parseMeuble(null), null);
+  // "immeuble" / "ameublement" ne doivent pas matcher "meuble"
+  assertEquals(parseMeuble("Bel appartement dans immeuble haussmannien"), null);
 });
 
 Deno.test("synthesizeMeuble : observes + convertis (x1,15 / x0,85 sur CC)", () => {
@@ -504,13 +510,21 @@ Deno.test("synthesizeMeuble : observes + convertis (x1,15 / x0,85 sur CC)", () =
   assertEquals(s2.parTypologie.T2!.meuble_source, "estime");
   assertEquals(s2.parTypologie.T2!.non_meuble_source, "observe");
   assertEquals(s2.base, "CC");
+  // meuble indetermine (null) -> EXCLU des deux moyennes
+  const s3 = synthesizeMeuble([
+    { surface: 20, typologie: "T1", prix_m2_cc: 30, meuble: true },
+    { surface: 20, typologie: "T1", prix_m2_cc: 99, meuble: null }, // ignore
+  ]);
+  assertEquals(s3.parTypologie.T1!.nb_meuble, 1); // le null n'est pas compte
+  assertEquals(s3.parTypologie.T1!.nb_non_meuble, 0);
+  assertEquals(s3.parTypologie.T1!.meuble, 30); // 99 (indetermine) exclu
 });
 
 Deno.test("parseAnnonces : meuble extrait du bloc", () => {
   const md = `[Appartement meublé 2 pièces 40 m²](https://www.seloger.com/annonces/locations/appartement/bordeaux-33/x/1.htm)\n900 € CC/mois\n\n[Appartement 3 pièces 60 m²](https://www.seloger.com/annonces/locations/appartement/bordeaux-33/y/2.htm)\n1100 €`;
   const a = parseAnnonces(md, []);
   assertEquals(a[0].meuble, true);
-  assertEquals(a[1].meuble, false);
+  assertEquals(a[1].meuble, null); // pas de mention -> indetermine (exclu des moyennes)
 });
 
 Deno.test("parseTypologies / matchesTypologies : choix multiple", () => {
@@ -519,6 +533,10 @@ Deno.test("parseTypologies / matchesTypologies : choix multiple", () => {
   assertEquals(parseTypologies("T2"), ["T2"]);
   assertEquals(parseTypologies(""), null);
   assertEquals(parseTypologies("xyz"), null);
+  // tableau envoye par le front (BUG 1) : accepte et normalise ; [] = toutes
+  assertEquals(parseTypologies(["T2"]), ["T2"]);
+  assertEquals(parseTypologies(["t2", "T3", "x"]), ["T2", "T3"]);
+  assertEquals(parseTypologies([]), null);
   assertEquals(matchesTypologies(1, ["T1", "T3"]), true);
   assertEquals(matchesTypologies(2, ["T1", "T3"]), false);
   assertEquals(matchesTypologies(3, ["T1", "T3"]), true);

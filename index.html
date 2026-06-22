@@ -161,9 +161,9 @@ tr.ea-rowlink{cursor:pointer}tr.ea-rowlink:hover td{background:var(--bsoft)}.ea-
 
 <div class="view" id="view-etudes"><section class="fp"><div class="c">
 <div class="st" style="text-align:left"><div class="k">Études de marché</div><h2 style="margin-top:6px">Saisie manuelle d'une étude</h2><p style="margin-left:0">Ajoutez un relevé terrain : il apparaît dans l'<b>Historique des études</b> et sur la <b>carte</b> (en ambre, pour le distinguer des études automatiques). Pour le scraping automatique, utilisez l'onglet «&nbsp;Étude auto&nbsp;».</p></div>
-<div class="fc" style="max-width:700px"><h3>&#9997;&#65039; Nouvelle étude manuelle</h3><p class="hint">Tapez l'adresse : ville, quartier et géolocalisation se remplissent automatiquement (modifiables).</p>
+<div class="fc" style="max-width:700px"><h3>&#9997;&#65039; Nouvelle étude manuelle</h3><p class="hint">Tapez l'adresse : ville et géolocalisation se remplissent automatiquement (modifiables).</p>
 <div class="fld" id="fadrwrap" style="position:relative"><label>Adresse *</label><input id="fadr" placeholder="ex. 12 rue de Paris, Nanterre..." autocomplete="off"><div class="sugg" id="fsg" style="top:calc(100% + 4px)"></div></div>
-<div class="g2"><div class="fld"><label>Ville *</label><input id="fv" placeholder="ex. Nanterre"></div><div class="fld"><label>Quartier</label><input id="fq" placeholder="ex. Centre"></div></div>
+<div class="fld"><label>Ville *</label><input id="fv" placeholder="ex. Nanterre"></div>
 <div class="g2"><div class="fld"><label>Type</label><select id="ftype"><option value="location">Location</option><option value="vente">Vente</option></select></div><div class="fld"><label>Typologie</label><select id="ftypo"><option value="">-</option><option value="T1">Studio/T1</option><option value="T2">T2</option><option value="T3">T3</option><option value="T4">T4</option><option value="T5">T5</option><option value="T6">T6</option></select></div></div>
 <div class="g2"><div class="fld"><label>Surface (m&sup2;) *</label><input id="fsurf" type="number" step="0.1" placeholder="ex. 45"></div><div class="fld"><label id="fmnt-label">Loyer CC (&euro;/mois) *</label><input id="fmnt" type="number" placeholder="ex. 980"></div></div>
 <div style="display:flex;gap:10px;margin-top:8px"><button id="save" class="btn bp" style="flex:1">Enregistrer l'étude</button><button id="fcancel" class="btn bg2" style="display:none">Annuler</button></div>
@@ -173,8 +173,8 @@ tr.ea-rowlink{cursor:pointer}tr.ea-rowlink:hover td{background:var(--bsoft)}.ea-
 <div class="view" id="view-etude-auto"><section class="fp"><div class="c">
 <div class="st" style="text-align:left"><div class="k">Étude de marché automatique</div><h2 style="margin-top:6px">Générez une étude en temps réel</h2><p style="margin-left:0">Générez une étude de marché automatique à partir des annonces SeLoger en temps réel. Indiquez une ville, le scraping et l'analyse sont automatiques.</p></div>
 <div class="fc" style="max-width:700px">
-<h3>Paramètres de l'étude</h3><p class="hint">Ville obligatoire, quartier optionnel. Choisissez le type de transaction puis lancez l'analyse.</p>
-<div class="g2"><div class="fld" id="ea-vwrap" style="position:relative"><label>Ville *</label><input id="ea-ville" placeholder="ex. Bordeaux, Paris 8, 75008..." autocomplete="off"><div class="sugg" id="ea-vsg" style="top:calc(100% + 4px)"></div></div><div class="fld" id="ea-qwrap" style="position:relative"><label>Quartier (optionnel)</label><input id="ea-quartier" placeholder="ex. Saint Jean-Belcier" autocomplete="off"><div class="sugg" id="ea-qsg" style="top:calc(100% + 4px)"></div></div></div>
+<h3>Paramètres de l'étude</h3><p class="hint">Ville (ou arrondissement, ex. « Paris 8 ») obligatoire. Choisissez le type de transaction puis lancez l'analyse.</p>
+<div class="fld" id="ea-vwrap" style="position:relative"><label>Ville *</label><input id="ea-ville" placeholder="ex. Bordeaux, Paris 8, 75008..." autocomplete="off"><div class="sugg" id="ea-vsg" style="top:calc(100% + 4px)"></div></div>
 <div class="fld"><label>Transaction</label><select id="ea-transaction"><option value="location">Location</option><option value="vente_neuf">Vente (Neuf)</option><option value="complete">Étude complète (Location + Achat neuf)</option></select><span class="hint" style="display:block;margin-top:4px" id="ea-trhint">Vente (Neuf) = programmes promoteurs SeLoger Neuf. Étude complète = location PUIS achat neuf, avec fiche PDF combinée (rendement).</span></div>
 <div class="gt" style="margin-top:18px">Filtres (optionnels)</div>
 <div class="g2"><div class="fld"><label>Typologies (plusieurs possibles)</label><div id="ea-typos" style="display:flex;flex-wrap:wrap;gap:6px;padding:4px 0"><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T1" style="accent-color:var(--blue);margin:0">Studio/T1</label><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T2" style="accent-color:var(--blue);margin:0">T2</label><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T3" style="accent-color:var(--blue);margin:0">T3</label><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T4" style="accent-color:var(--blue);margin:0">T4</label><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T5" style="accent-color:var(--blue);margin:0">T5</label><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T6" style="accent-color:var(--blue);margin:0">T6</label></div><span class="hint" style="display:block;margin-top:2px">Aucune coche = toutes les typologies</span></div><div class="fld" id="ea-anneewrap"><label>Année de construction min</label><input id="ea-annee" type="number" min="1900" max="2030" placeholder="ex. 2020, 2025..."><span class="hint" style="display:block;margin-top:4px">Vrai filtre SeLoger : ne garde que les biens construits &ge; cette année</span></div></div>
@@ -384,19 +384,19 @@ fsg.innerHTML=fA.map(function(f,i){var p=f.properties;return '<div class="sug" d
 fsg.classList.add("show");[].forEach.call(fsg.querySelectorAll(".sug"),function(el){el.onclick=function(){fpick(fA[+el.dataset.i])}})}
 function ffetch(q){fetch("https://api-adresse.data.gouv.fr/search/?q="+encodeURIComponent(q)+"&limit=5").then(function(r){return r.json()}).then(function(j){fA=(j&&j.features)||[];frender()}).catch(function(){fA=[];frender()})}
 function fpick(f){if(!f)return;var p=f.properties,c=f.geometry.coordinates;fLng=c[0];fLat=c[1];fCP=p.postcode||null;fadr.value=p.label;
-document.getElementById("fv").value=p.city||"";document.getElementById("fq").value=p.district||p.city||"";fsg.classList.remove("show")}
+document.getElementById("fv").value=p.city||"";fsg.classList.remove("show")}
 if(fadr){fadr.oninput=function(){var q=fadr.value.trim();fLat=null;fLng=null;fCP=null;if(fT)clearTimeout(fT);if(q.length<3){fA=[];frender();return}fT=setTimeout(function(){ffetch(q)},250)};
 fadr.onkeydown=function(e){if(e.key=="Escape")fsg.classList.remove("show")}}
 document.addEventListener("click",function(e){if(!e.target.closest("#fadrwrap"))fsg.classList.remove("show")});
 
-function resetForm(){["fv","fq","fadr","fsurf","fmnt"].forEach(function(i){var el=document.getElementById(i);if(el)el.value=""});var tp=document.getElementById("ftypo");if(tp)tp.value="";fLat=null;fLng=null;fCP=null;if(sb){sb.textContent="Enregistrer l'étude";sb.disabled=false}var c=document.getElementById("fcancel");if(c)c.style.display="none"}
+function resetForm(){["fv","fadr","fsurf","fmnt"].forEach(function(i){var el=document.getElementById(i);if(el)el.value=""});var tp=document.getElementById("ftypo");if(tp)tp.value="";fLat=null;fLng=null;fCP=null;if(sb){sb.textContent="Enregistrer l'étude";sb.disabled=false}var c=document.getElementById("fcancel");if(c)c.style.display="none"}
 var fc=document.getElementById("fcancel");if(fc)fc.onclick=function(){resetForm();toast("Annulé")};
 /* libelle du montant selon le type */
 var fTypeSel=document.getElementById("ftype");
 if(fTypeSel)fTypeSel.onchange=function(){var l=document.getElementById("fmnt-label");if(l)l.innerHTML=fTypeSel.value=="vente"?"Prix de vente (&euro;) *":"Loyer CC (&euro;/mois) *"};
 if(sb)sb.onclick=function(){
 var v=document.getElementById("fv").value.trim();if(!v){toast("Ville obligatoire");return}
-var q=document.getElementById("fq").value.trim()||v,la=fLat,lo=fLng;
+var q=v,la=fLat,lo=fLng;
 if(la==null||lo==null){var vv=DB.villes.find(function(x){return x.ville.toLowerCase()==v.toLowerCase()});if(vv){la=vv.lat;lo=vv.lng}else{toast("Choisissez une adresse dans la liste");return}}
 var type=document.getElementById("ftype").value=="vente"?"vente":"location";
 var typo=document.getElementById("ftypo").value||null;
@@ -682,7 +682,7 @@ if(!n)return details(0);return topup(pg+1)})
 function details(i){
 if(i>=progs.length)return fin();
 eaResult.innerHTML=eaProgress(prefix+"Programme "+(i+1)+"/"+progs.length+"… ("+metas.length+" exploités, "+rows.length+" lots, "+cachedCount+" prog. en cache)",credits);
-return eaApi({phase:"neuf-detail",url:progs[i],ville:res.ville,quartier:body.quartier,codePostal:res.codePostal,typologie:body.typologie})
+return eaApi({phase:"neuf-detail",url:progs[i],ville:res.ville,codePostal:res.codePostal,typologies:body.typologies})
 .then(function(r){credits+=r.creditsEstimes||1;scraped++;
 if(r.annonces&&r.annonces.length){var p=r.programme||{url:progs[i]};metas.push(p);rows=rows.concat(r.annonces)}
 return details(i+1)})
@@ -712,7 +712,7 @@ return eaApi({phase:"finalize",ville:res.ville,quartier:body.quartier,transactio
 function next(pg){
 if(pg>(res.pagesPrevues||1)||all.length>=EA_MAX)return finalize();
 eaResult.innerHTML=eaProgress(prefix+"Annonces SeLoger : page "+pg+"/"+res.pagesPrevues+"… ("+all.length+" récupérées)",credits);
-return eaApi({phase:"page",page:pg,code:res.code,ville:res.ville,quartier:body.quartier,codePostal:res.codePostal,transaction:body.transaction,typologie:body.typologie,anneeMin:body.anneeMin})
+return eaApi({phase:"page",page:pg,code:res.code,ville:res.ville,codePostal:res.codePostal,transaction:body.transaction,typologies:body.typologies,anneeMin:body.anneeMin})
 .then(function(r){credits+=(r.creditsEstimes||1);
 var fresh=eaCollect(all,seen,r.annonces);
 if(!fresh){console.warn("etude-auto: page "+pg+" -> aucune annonce nouvelle (doublons) : arrêt de la pagination");return finalize()}
@@ -763,19 +763,20 @@ setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},2000)})
 if(eaRun)eaRun.onclick=function(){
 var ville=document.getElementById("ea-ville").value.trim();if(!ville){toast("Ville obligatoire");return}
 var tr=document.getElementById("ea-transaction").value;
-var body={phase:"start",ville:ville,quartier:document.getElementById("ea-quartier").value.trim(),transaction:tr};
+var body={phase:"start",ville:ville,transaction:tr};
 var typos=[].map.call(document.querySelectorAll(".ea-typo-cb:checked"),function(c){return c.value});
-if(typos.length&&typos.length<6)body.typologie=typos.join(",");
+/* tableau "typologies" lu par la fonction ; vide ou 6/6 = toutes typologies */
+if(typos.length&&typos.length<6)body.typologies=typos;
 if(tr!="vente_neuf"){var annee=eaVal("ea-annee");if(annee!=null)body.anneeMin=annee;}
 function eaFail(err){console.error("etude-auto",err);eaResult.innerHTML=eaError((err&&err.message)||"Échec de l'étude.");eaRun.disabled=false;eaRun.textContent="Lancer l'étude"}
 requireAuth(function(){eaRun.disabled=true;eaRun.textContent="Récupération…";
 var p;
 if(tr=="complete"){
 /* sequentiel : location PUIS achat neuf (~5 + ~1+N credits) */
-var bLoc={phase:"start",ville:ville,quartier:body.quartier,transaction:"location"};
-if(body.typologie)bLoc.typologie=body.typologie;if(body.anneeMin!=null)bLoc.anneeMin=body.anneeMin;
-var bNeuf={phase:"start",ville:ville,quartier:body.quartier,transaction:"vente_neuf"};
-if(body.typologie)bNeuf.typologie=body.typologie;
+var bLoc={phase:"start",ville:ville,transaction:"location"};
+if(body.typologies)bLoc.typologies=body.typologies;if(body.anneeMin!=null)bLoc.anneeMin=body.anneeMin;
+var bNeuf={phase:"start",ville:ville,transaction:"vente_neuf"};
+if(body.typologies)bNeuf.typologies=body.typologies;
 p=eaLocRun(bLoc,"Étape 1/2 · Location : ").then(function(loc){
 return eaNeufRun(bNeuf,"Étape 2/2 · Achat neuf : ").then(function(nf){eaShowResultComplete(loc,nf)})})
 }else if(tr=="vente_neuf"){p=eaNeufRun(body,"").then(function(r){eaShowResult(r)})}
@@ -787,7 +788,7 @@ var eaV=document.getElementById("ea-ville"),eaVsg=document.getElementById("ea-vs
 function eaVrender(){if(!eaVM.length){eaVsg.classList.remove("show");eaVsg.innerHTML="";return}
 eaVsg.innerHTML=eaVM.map(function(c,i){return '<div class="sug'+(i==eaVai?" active":"")+'" data-i="'+i+'"><span class="tag ville">ville</span><span>'+eaEsc(c.nom)+(c.cp?' <span style="color:var(--soft)">('+eaEsc(c.cp)+')</span>':'')+'</span></div>'}).join("");
 eaVsg.classList.add("show");[].forEach.call(eaVsg.querySelectorAll(".sug"),function(el){el.onclick=function(){eaVpick(eaVM[+el.dataset.i])}})}
-function eaVpick(c){eaV.value=c.nom;eaVM=[];eaVrender();var q=document.getElementById("ea-quartier");if(q)q.focus()}
+function eaVpick(c){eaV.value=c.nom;eaVM=[];eaVrender()}
 function eaVshow(){var t=eaV.value.trim();
 if(t.length<3||/\d/.test(t)){eaVM=[];eaVrender();return} /* "Paris 8"/"75008" = arrondissement, pas d autocomplete */
 clearTimeout(eaVtimer);
@@ -805,28 +806,6 @@ else if(e.key=="Enter"){if(eaVai>=0){e.preventDefault();eaVpick(eaVM[eaVai])}}
 else if(e.key=="Escape")eaVsg.classList.remove("show")};
 document.addEventListener("click",function(e){if(!e.target.closest("#ea-vwrap"))eaVsg.classList.remove("show")})}
 
-/* ====== AUTOCOMPLETION QUARTIER ======
-   Sources fusionnees : quartiers officiels SeLoger (autocomplete legacy
-   autocomplete.svc.groupe-seloger.com : sans DataDome, CORS ouvert, 0 credit)
-   + quartiers deja connus en base (programmes / etudes_marche). */
-var eaQ=document.getElementById("ea-quartier"),eaQsg=document.getElementById("ea-qsg"),eaQcache={},eaQM=[],eaQai=-1;
-function eaQfetch(ville){var key=ville.toLowerCase();if(eaQcache[key])return Promise.resolve(eaQcache[key]);
-var h={apikey:EA_KEY,Authorization:"Bearer "+EA_KEY},q=encodeURIComponent(ville);
-function get(t){return fetch(EA_SUPA+"/"+t+"?ville=ilike."+q+"&select=quartier",{headers:h}).then(function(r){return r.ok?r.json():[]}).catch(function(){return[]})}
-function getSeLoger(){return fetch("https://autocomplete.svc.groupe-seloger.com/api/v2.0/auto/complete/fra/63/10/8/SeLoger?text="+q).then(function(r){return r.ok?r.json():[]}).then(function(arr){
-var v=(arr||[]).find(function(x){return x&&x.Type=="Ville"&&String(x.Tag||"").toLowerCase()==key})||(arr||[]).find(function(x){return x&&x.Type=="Ville"});
-var qs=(v&&v.Meta&&v.Meta.Quartiers)||[];return qs.map(function(x){return String(x.Name||"").trim()})}).catch(function(){return[]})}
-return Promise.all([get("programmes"),get("etudes_marche"),getSeLoger()]).then(function(res){var set={};
-res[0].concat(res[1]).forEach(function(r){var qq=(r.quartier||"").trim();if(qq&&qq.toLowerCase()!=key)set[qq]=1});
-res[2].forEach(function(n){if(n&&n.toLowerCase()!=key)set[n]=1});
-var list=Object.keys(set).sort(function(a,b){return a.localeCompare(b)});eaQcache[key]=list;return list})}
-function eaQrender(){if(!eaQM.length){eaQsg.classList.remove("show");eaQsg.innerHTML="";return}
-eaQsg.innerHTML=eaQM.map(function(qq,i){return '<div class="sug'+(i==eaQai?" active":"")+'" data-i="'+i+'"><span class="tag quartier">quartier</span><span>'+eaEsc(qq)+'</span></div>'}).join("");
-eaQsg.classList.add("show");[].forEach.call(eaQsg.querySelectorAll(".sug"),function(el){el.onclick=function(){eaQpick(eaQM[+el.dataset.i])}})}
-function eaQpick(qq){eaQ.value=qq;eaQsg.classList.remove("show")}
-function eaQshow(){var ville=document.getElementById("ea-ville").value.trim();if(!ville){eaQM=[];eaQrender();return}
-var typed=eaQ.value.trim().toLowerCase();
-eaQfetch(ville).then(function(list){eaQM=list.filter(function(qq){return qq.toLowerCase().indexOf(typed)>-1}).slice(0,8);eaQai=-1;eaQrender()})}
 /* Vente Neuf : tout est neuf -> masque les filtres annee + "Neuf uniquement" */
 var eaTr=document.getElementById("ea-transaction");
 function eaTrToggle(){var neuf=eaTr.value=="vente_neuf";
@@ -834,9 +813,6 @@ var aw=document.getElementById("ea-anneewrap");
 if(aw)aw.style.display=neuf?"none":"";}
 if(eaTr){eaTr.onchange=eaTrToggle;eaTrToggle()}
 
-if(eaQ){eaQ.oninput=eaQshow;eaQ.onfocus=eaQshow;
-eaQ.onkeydown=function(e){if(!eaQM.length)return;if(e.key=="ArrowDown"){e.preventDefault();eaQai=(eaQai+1)%eaQM.length;eaQrender()}else if(e.key=="ArrowUp"){e.preventDefault();eaQai=(eaQai-1+eaQM.length)%eaQM.length;eaQrender()}else if(e.key=="Enter"){if(eaQai>=0){e.preventDefault();eaQpick(eaQM[eaQai])}}else if(e.key=="Escape")eaQsg.classList.remove("show")};
-document.addEventListener("click",function(e){if(!e.target.closest("#ea-qwrap"))eaQsg.classList.remove("show")})}
 
 /* ====== PAGE RESULTATS / HISTORIQUE (reouverture 0 credit) ====== */
 var eaHistGroups=null;

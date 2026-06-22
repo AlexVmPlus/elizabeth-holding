@@ -64,11 +64,18 @@ export function buildListUrl(seloCode: number, transaction: Transaction, page = 
 // lieu AD..FR.. (resolu via la page SEO de la ville, cf. index.ts).
 // Valide le 12/06/2026 : Bordeaux AD08FR13100 sans filtre 1819 annonces,
 // >=2020 -> 64, >=2025 -> 28 ; Lyon AD08FR28808 >=2020 -> 83, >=2025 -> 28.
+// MEUBLE (valide le 13/06/2026) : `furnished=Full` = VRAI filtre serveur
+// "meuble uniquement" (Bordeaux 1819 -> 1109), compatible pagination et
+// yearOfConstructionMin (>=2020 + meuble -> 27). La valeur vient des liens de
+// la page SEO type-meuble (search=...furnished%3DFull). Il n'existe PAS de
+// valeur "non meuble uniquement" (Empty/None/Unfurnished... -> 0 resultat) :
+// le statut non meuble reste detecte par texte (parseMeuble, tri-state).
 // ----------------------------------------------------------------------------
-export function buildClassifiedUrl(code: string, transaction: Transaction, anneeMin: number | null, page = 1): string {
+export function buildClassifiedUrl(code: string, transaction: Transaction, anneeMin: number | null, page = 1, meuble = false): string {
   const dist = transaction === "vente" ? "Buy" : "Rent";
   let url = `https://www.seloger.com/classified-search?distributionTypes=${dist}` +
     `&estateTypes=Apartment,House&locations=${encodeURIComponent(code)}`;
+  if (meuble && transaction === "location") url += `&furnished=Full`;
   if (anneeMin) url += `&yearOfConstructionMin=${anneeMin}`;
   if (page > 1) url += `&page=${page}`;
   return url;
@@ -423,13 +430,22 @@ export interface RawAnnonce {
   loyer: number | null;
   surface: number | null;
   pieces: number | null;
-  meuble?: boolean;
+  meuble?: boolean | null;
 }
 
-// Meuble : detection sur le titre + la description du bloc (SeLoger ecrit
-// "Appartement meublé", "Studio meublé"...). Defaut : non meuble.
-export function parseMeuble(text: string | null | undefined): boolean {
-  return /meubl[eé]/i.test(text || "") && !/non[ -]meubl/i.test(text || "");
+// Meuble : detection TRI-STATE sur le texte normalise (minuscules, sans
+// accents) — SeLoger ecrit "NON-MEUBLE", "non meublé", "Meublé", "MEUBLE"...
+// 1. "non meuble" (tirets/espaces) -> NON MEUBLE (teste AVANT "meuble",
+//    sinon "non meublé" matchait "meublé" = ancien bug).
+// 2. sinon "meuble" precede d'un non-lettre -> MEUBLE (evite "immeuble",
+//    "ameublement").
+// 3. sinon -> null = INDETERMINE (exclu des moyennes meuble/non meuble).
+export function parseMeuble(text: string | null | undefined): boolean | null {
+  const t = (text || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  if (!t) return null;
+  if (/non[\s  _/-]{0,3}meubl/.test(t)) return false;
+  if (/(?:^|[^a-z])meubl/.test(t)) return true;
+  return null;
 }
 
 // Nettoie une URL capturee depuis le markdown : un lien markdown peut s'ecrire
@@ -577,7 +593,9 @@ export function annonceToRow(a: RawAnnonce, ctx: RowCtx): Row | null {
     url: a.url,
     source: "firecrawl",
     titre: a.titre,
-    meuble: isLoc ? (a.meuble ?? false) : null,
+    // tri-state : true/false detecte, null = indetermine (exclu des moyennes
+    // meuble/non meuble cote synthese). PAS de defaut "non meuble".
+    meuble: isLoc ? (a.meuble ?? null) : null,
     scraped_at: ctx.scrapedAt,
   };
 }
@@ -592,12 +610,13 @@ export function matchesTypologie(pieces: number | null, typo: string | null | un
   return typologie(pieces) === typo;
 }
 
-// Choix MULTIPLE de typologies : "T1,T3,T4" (CSV). Vide/null = toutes.
-// Normalise la saisie et ignore les valeurs invalides ; renvoie null si rien
-// d'exploitable (= pas de filtre).
-export function parseTypologies(input: string | null | undefined): string[] | null {
+// Choix MULTIPLE de typologies : tableau ["T1","T3"] (envoye par le front) ou
+// CSV "T1,T3,T4" (compat). Vide/null = toutes. Normalise la saisie et ignore
+// les valeurs invalides ; renvoie null si rien d'exploitable (= pas de filtre).
+export function parseTypologies(input: string | string[] | null | undefined): string[] | null {
   if (!input) return null;
-  const list = String(input).toUpperCase().split(/[\s,;+]+/).filter((t) => /^T[1-6]$/.test(t));
+  const raw = Array.isArray(input) ? input.join(",") : String(input);
+  const list = raw.toUpperCase().split(/[\s,;+]+/).filter((t) => /^T[1-6]$/.test(t));
   return list.length ? [...new Set(list)] : null;
 }
 
@@ -655,6 +674,7 @@ export function synthesizeMeuble(rows: MeubleRow[]) {
     let sM = 0, wM = 0, obsM = 0;
     for (const r of arr) {
       if (r.prix_m2_cc == null || !r.surface) continue;
+      if (r.meuble == null) continue; // indetermine -> exclu des deux moyennes
       const w = r.surface;
       if (r.meuble) {
         sM += r.prix_m2_cc * w;
