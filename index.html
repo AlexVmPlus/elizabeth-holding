@@ -85,6 +85,13 @@ footer{border-top:1px solid var(--line);padding:36px 0;margin-top:30px}.fi{displ
 .view{display:none}.view.active{display:block}
 .fld select{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:11px;font-size:15px;font-family:var(--f);background:var(--bg);color:var(--ink);outline:none;cursor:pointer}.fld select:focus{border-color:var(--blue);background:#fff}
 .spinner{width:40px;height:40px;border-radius:50%;border:4px solid var(--bsoft);border-top-color:var(--blue);margin:0 auto;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+.ea-cta{display:inline-flex;align-items:center;gap:10px;border:none;cursor:pointer;color:#fff;font-weight:700;font-size:16px;padding:15px 34px;border-radius:16px;font-family:var(--f);background:linear-gradient(135deg,#1f5fff,#8b46f0);box-shadow:0 10px 26px -6px rgba(70,90,220,.5);transition:transform .16s ease,box-shadow .16s ease,filter .16s ease}
+.ea-cta:hover{transform:translateY(-2px);box-shadow:0 16px 34px -8px rgba(70,90,220,.6);filter:saturate(1.1)}
+.ea-cta:active{transform:translateY(0)}
+.ea-cta:disabled{opacity:.55;cursor:default;transform:none;box-shadow:none}
+.ea-cta-done{display:inline-flex;align-items:center;gap:8px;color:var(--teal);font-weight:700;font-size:15px;background:#e6fbf8;border:1px solid #b8ece6;padding:11px 22px;border-radius:14px}
+.ea-pbar{height:11px;border-radius:7px;background:#e7ecf5;overflow:hidden}
+.ea-pbar-fill{height:100%;border-radius:7px;background:linear-gradient(135deg,#1f5fff,#8b46f0);transition:width .35s ease;background-size:200% 100%;animation:eapb 1.2s linear infinite}@keyframes eapb{to{background-position:200% 0}}
 .eahead{padding:22px 24px 16px}.eahead .k{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--blue)}.eahead h2{font-size:24px;margin-top:4px}.eahead .s{color:var(--soft);font-size:14px;margin-top:3px}
 tr.ea-global td{background:var(--bg);font-weight:800;border-top:2px solid var(--line)}
 tr.ea-rowlink{cursor:pointer}tr.ea-rowlink:hover td{background:var(--bsoft)}.ea-link{color:var(--blue);font-weight:700;white-space:nowrap}
@@ -463,6 +470,8 @@ var EA_MAX=100; /* plafond annonces location (4 pages max), fixe */
 var EA_DETAIL_MAX=12; /* echantillon scrape en detail (charges/DPE) : 12 suffit pour une moyenne fiable, ~2/typo */
 var EA_DETAIL_BATCH=5; /* lots de detail par appel (front pilote la boucle) */
 var EA_DETAIL_CACHE_DAYS=30; /* reutilise charges/DPE deja en base < 30 j (0 credit) */
+/* identifiant de LOT (1 lancement) : pose sur toutes les annonces -> historique groupe */
+function eaEtudeId(){return "e"+Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
 /* echantillon <=maxN reparti en round-robin sur les typologies */
 function eaPickSample(annonces,maxN){maxN=maxN||25;
 var groups={},order=[];
@@ -482,57 +491,48 @@ return fetch(u,{headers:h}).then(function(r){return r.ok?r.json():[]}).then(func
 (rows||[]).forEach(function(row){if(!row.url)return;if(row.charges==null&&!row.dpe&&!row.ges)return;var k=eaUrlKey(row);if(!m[k])m[k]={charges:row.charges,dpe:row.dpe,ges:row.ges}});
 return m}).catch(function(){return {}})}
 /* cache de SESSION des pages detail deja scrapees (par URL sans query) ->
-   {charges,dpe,ges}. Permet au 2e bouton (DPE apres Charges, ou l'inverse) de
-   reutiliser le scrape du 1er : ~0 credit. */
+   {charges,dpe,ges}. Reutilise au prochain clic / autre etude : ~0 credit. */
 var eaDetailMem={};
-/* etat "deja recupere" par dimension (donnee presente = recupere) */
-function eaChargesDone(loc){return !!(loc&&((loc.annonces||[]).some(function(a){return a&&a.charges!=null})))}
-function eaDpeDone(loc){return !!(loc&&((loc.annonces||[]).some(function(a){return a&&a.dpe&&/^[A-G]$/i.test(String(a.dpe))})))}
-/* echantillon FIXE (deterministe) pour la ville : memes annonces pour les 2 boutons */
+/* etude avec detail deja recupere (charges OU dpe present) */
+function eaDetailDone(loc){return !!(loc&&(loc._detailDone||(loc.annonces||[]).some(function(a){return a&&(a.charges!=null||(a.dpe&&/^[A-G]$/i.test(String(a.dpe))))})))}
+/* echantillon FIXE (deterministe) par typologie */
 function eaDetailSample(loc){return eaPickSample(loc.annonces||[],EA_DETAIL_MAX)}
 /* cout estime AVANT clic : pages de l'echantillon pas encore en cache de session */
 function eaDetailCost(loc){var s=eaDetailSample(loc);return s.filter(function(a){return !eaDetailMem[eaUrlKey(a)]}).length}
-/* SCRAPE DETAIL A LA DEMANDE, dimension mode = "charges" ou "dpe".
-   - echantillon FIXE par typo ; pour chaque page : cache session -> cache base
-     30j -> sinon scrape (proxy basic->auto cote serveur). Le scrape ramene
-     charges ET dpe (meme page) -> stocke FULL en cache session.
-   - applique a l'AFFICHAGE UNIQUEMENT la dimension demandee (charges OU dpe).
-   - stocke FULL en base (cache 30j futur) sans changer l'affichage.
-   Renvoie le resultat location enrichi (re-rendu par l'appelant). */
-function eaRunDetail(loc,mode){
-var label=mode=="dpe"?"DPE":"Charges";
+/* SCRAPE DETAIL A LA DEMANDE (charges + loyer HC + DPE en une fois -> meme page).
+   echantillon FIXE par typo ; par page : cache session -> cache base 30j -> sinon
+   scrape (proxy basic->auto cote serveur). Stocke FULL en base (cache 30j futur,
+   meme etude_id). onProgress(k,n) pour la barre. Renvoie le resultat enrichi. */
+function eaRunDetail(loc,onProgress){
 var all=loc.annonces||[],credits=0;
-function applyMode(a,v){ // v = {charges,dpe,ges}
-if(mode=="charges"){if(v.charges!=null){a.charges=v.charges;if(a.loyer_cc!=null&&a.surface>0&&v.charges<a.loyer_cc){a.loyer_hc=Math.round(a.loyer_cc-v.charges);a.prix_m2_hc=Math.round(a.loyer_hc/a.surface*100)/100}}}
-else{if(v.dpe)a.dpe=v.dpe;if(v.ges)a.ges=v.ges}}
+function applyFull(a,v){
+if(v.charges!=null){a.charges=v.charges;if(a.loyer_cc!=null&&a.surface>0&&v.charges<a.loyer_cc){a.loyer_hc=Math.round(a.loyer_cc-v.charges);a.prix_m2_hc=Math.round(a.loyer_hc/a.surface*100)/100}}
+if(v.dpe)a.dpe=v.dpe;if(v.ges)a.ges=v.ges}
 return eaDetailCache(loc.ville).then(function(dbcache){
 function avail(a){var k=eaUrlKey(a);return eaDetailMem[k]||dbcache[k]||null}
-var sample=eaDetailSample(loc),nbCache=0,toScrape=[];
-sample.forEach(function(a){var v=avail(a);if(v){applyMode(a,v);nbCache++}else toScrape.push(a)});
-var bi=0;
+var sample=eaDetailSample(loc),toScrape=[];
+sample.forEach(function(a){var v=avail(a);if(v)applyFull(a,v);else toScrape.push(a)});
+var bi=0,total=toScrape.length;if(onProgress)onProgress(0,total);
 function done(){
-eaResult.innerHTML=eaProgress("Synthèse "+label.toLowerCase()+"…",credits);
-/* stockage FULL en base (cache futur) : on fusionne tout ce que la session connait */
 var store=all.slice(0,EA_MAX).map(function(a){var m=eaDetailMem[eaUrlKey(a)];if(!m)return a;
 var ch=(m.charges!=null)?m.charges:null,lh=null,ph=null;
 if(ch!=null&&a.loyer_cc!=null&&a.surface>0&&ch<a.loyer_cc){lh=Math.round(a.loyer_cc-ch);ph=Math.round(lh/a.surface*100)/100}
 var o={};for(var k in a)o[k]=a[k];o.charges=ch;o.loyer_hc=lh;o.prix_m2_hc=ph;o.dpe=m.dpe||a.dpe||null;o.ges=m.ges||a.ges||null;return o});
-return eaApi({phase:"finalize",ville:loc.ville,transaction:"location",annonces:store,credits:0})
+return eaApi({phase:"finalize",ville:loc.ville,transaction:"location",annonces:store,credits:0,etudeId:loc.etudeId,scrapedAt:loc.scrapedAt})
 .catch(function(){return null}).then(function(){
-loc.creditsEstimes=(loc.creditsEstimes||0)+credits;
-loc.charges=eaSynthChargesFront(all);loc.dpeFrequent=loc.charges.dpe_frequent;
-if(mode=="charges")loc.detailCreditsCharges=(loc.detailCreditsCharges||0)+credits;else loc.detailCreditsDpe=(loc.detailCreditsDpe||0)+credits;
-return loc})}
+loc.creditsEstimes=(loc.creditsEstimes||0)+credits;loc._detailDone=true;loc.detailCredits=(loc.detailCredits||0)+credits;
+loc.charges=eaSynthChargesFront(all);loc.dpeFrequent=loc.charges.dpe_frequent;return loc})}
 function step(){
 if(bi>=toScrape.length)return done();
 var batch=toScrape.slice(bi,bi+EA_DETAIL_BATCH);bi+=batch.length;
-eaResult.innerHTML=eaProgress(label+" : "+Math.min(bi,toScrape.length)+"/"+toScrape.length+(nbCache?" &middot; "+nbCache+" en cache":"")+"… (≈ "+credits+" crédits)",credits);
+if(onProgress)onProgress(Math.min(bi,total),total);
 return eaApi({phase:"loc-detail",items:batch.map(function(a){return {url:a.url,loyer_cc:a.loyer_cc,surface:a.surface}})})
 .then(function(r){credits+=(r.creditsEstimes||batch.length);
 (r.results||[]).forEach(function(d){var k=eaUrlKey(d);eaDetailMem[k]={charges:d.charges,dpe:d.dpe,ges:d.ges};
-for(var x=0;x<all.length;x++){if(eaUrlKey(all[x])===k){applyMode(all[x],eaDetailMem[k]);break}}});
+for(var x=0;x<all.length;x++){if(eaUrlKey(all[x])===k){applyFull(all[x],eaDetailMem[k]);break}}});
+if(onProgress)onProgress(Math.min(bi,total),total);
 return step()})
-.catch(function(e){console.warn("etude-auto: lot "+label+" en échec, on continue",e);return step()})}
+.catch(function(e){console.warn("etude-auto: lot détail en échec, on continue",e);return step()})}
 return step()})}
 var eaFD=null; /* etat fiche : {res, insee, ratio, ref, _stats} */
 function eaNc(){return '<div class="v nc">n.c.</div>'}
@@ -689,32 +689,32 @@ if(res.transaction=="vente_neuf"){eaShowResultNeuf(res);return}
 var nb=res.annoncesRetenues!=null?res.annoncesRetenues:((res.annonces&&res.annonces.length)||0);
 var banner=eaDone((nb||0)+" annonce"+(nb>1?"s":"")+" récupérée"+(nb>1?"s":""),res.creditsEstimes,res.fromHistory);
 var btn=(res.global&&nb)?'<div class="no-print" style="text-align:center;margin:22px 0 6px"><button id="ea-genfiche" class="btn bp" style="padding:14px 30px;font-size:16px">&#128202; Générer la fiche complète</button></div>':'';
-var detailBtn=eaDetailBtnsHtml(res);
+var detailBtn=eaDetailBtnHtml(res);
 eaComboFD={loc:res,neuf:null,insee:null};
 eaResult.innerHTML=banner+(res.transaction=="location"?eaMeubleTable(res):'')+eaPrefiche(res)+detailBtn+btn+(nb?eaPdfBtnHtml():'')+'<div id="ea-fiche-zone" style="margin-top:8px"></div>';
 if(window.gsap)gsap.from("#ea-prefiche",{y:18,opacity:0,duration:.45,ease:"power3.out"});
 eaWireRows();eaWirePdfBtn();
 var g=document.getElementById("ea-genfiche");if(g)g.onclick=function(){eaGenerateFiche(eaLastRes)};
-eaWireDetailBtns(res,function(r2){eaShowResult(r2)});
+eaWireDetailBtn(res,function(r2){eaShowResult(r2)});
 eaRun.disabled=false;eaRun.textContent="Lancer l'étude"}
 /* DEUX boutons independants (location uniquement) : Charges (+HC) et DPE.
    Chacun affiche son cout avant clic ; une fois fait -> "✓ ... récupéré". */
-function eaDetailBtnsHtml(loc){
+/* UN seul beau bouton "Charges + DPE" (location uniquement) */
+function eaDetailBtnHtml(loc){
 var nb=loc&&loc.annonces?loc.annonces.length:0;
 if(!loc||loc.transaction!="location"||!nb)return '';
-var cost=eaDetailCost(loc),costTxt=cost>0?'(≈ '+cost+' crédits, moins si en cache)':'(≈ 0 crédit, en cache)';
-var cBtn=eaChargesDone(loc)
-?'<span style="color:var(--soft);font-size:13px">&#10003; Charges récupérées'+(loc.detailCreditsCharges?' (+'+loc.detailCreditsCharges+' crédits)':'')+'</span>'
-:'<button id="ea-btn-charges" class="btn bg2" style="padding:11px 22px;font-size:15px">&#128176; Récupérer les charges '+costTxt+'</button>';
-var dBtn=eaDpeDone(loc)
-?'<span style="color:var(--soft);font-size:13px">&#10003; DPE récupéré'+(loc.detailCreditsDpe?' (+'+loc.detailCreditsDpe+' crédits)':'')+'</span>'
-:'<button id="ea-btn-dpe" class="btn bg2" style="padding:11px 22px;font-size:15px">&#128267; Récupérer le DPE '+costTxt+'</button>';
-return '<div class="no-print" style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;align-items:center;margin:18px 0 0">'+cBtn+dBtn+'</div>'}
-function eaWireDetailBtns(loc,onDone){
-function wire(id,mode){var b=document.getElementById(id);if(!b)return;
-b.onclick=function(){requireAuth(function(){b.disabled=true;b.textContent="Récupération…";
-eaRunDetail(loc,mode).then(onDone).catch(function(e){console.error("detail",e);b.disabled=false;toast("Échec récupération "+(mode=="dpe"?"DPE":"charges"));})})}}
-wire("ea-btn-charges","charges");wire("ea-btn-dpe","dpe")}
+var inner;
+if(eaDetailDone(loc)){inner='<span class="ea-cta-done">&#10003; Charges + DPE récupérés'+(loc.detailCredits?' (+'+loc.detailCredits+' crédits)':'')+'</span>';}
+else{var cost=eaDetailCost(loc);inner='<button id="ea-detailbtn" class="ea-cta">&#128176; Récupérer charges + DPE</button>'+
+'<div style="color:var(--soft);font-size:12px;margin-top:7px">≈ '+cost+' crédit'+(cost>1?'s':'')+' (moins si en cache)</div>';}
+return '<div id="ea-detailwrap" class="no-print" style="text-align:center;margin:22px 0 6px">'+inner+'</div>'}
+function eaDetailProgressHtml(k,n){var pct=n?Math.round(k/Math.max(n,1)*100):100;
+return '<div style="max-width:440px;margin:0 auto"><div style="font-size:14px;font-weight:700;color:var(--deep);margin-bottom:9px">&#128176; Récupération charges + DPE… '+k+'/'+n+'</div><div class="ea-pbar"><div class="ea-pbar-fill" style="width:'+pct+'%"></div></div></div>'}
+function eaWireDetailBtn(loc,onDone){var b=document.getElementById("ea-detailbtn");if(!b)return;
+b.onclick=function(){requireAuth(function(){var wrap=document.getElementById("ea-detailwrap");
+function prog(k,n){if(wrap)wrap.innerHTML=eaDetailProgressHtml(k,n)}
+prog(0,eaDetailCost(loc));
+eaRunDetail(loc,prog).then(onDone).catch(function(e){console.error("detail",e);toast("Échec récupération charges/DPE");if(wrap)wrap.innerHTML='<button id="ea-detailbtn" class="ea-cta">Réessayer charges + DPE</button>';eaWireDetailBtn(loc,onDone)})})}}
 
 /* ====== VENTE NEUF (programmes promoteurs SeLoger Neuf) ====== */
 /* pre-fiche neuf : detail LOT PAR LOT (tableau plat, lien Voir par lot) */
@@ -832,27 +832,27 @@ return details(i+1)})
 function fin(){
 if(!rows.length){return Promise.resolve({done:true,transaction:"vente_neuf",ville:res.ville,quartier:body.quartier||null,scrapedAt:res.scrapedAt,annonces:[],annoncesRetenues:0,parTypologie:{},global:null,creditsEstimes:credits,cachedProgrammes:cachedCount,scrapedProgrammes:scraped,message:"Aucun lot exploitable dans les programmes neufs (prix non affichés ?)."})}
 eaResult.innerHTML=eaProgress(prefix+"Synthèse et enregistrement… ("+metas.length+" programmes, "+rows.length+" lots)",credits);
-return eaApi({phase:"finalize",ville:res.ville,quartier:body.quartier,transaction:"vente_neuf",annonces:rows,credits:credits})
-.then(function(f){f.cachedProgrammes=cachedCount;f.scrapedProgrammes=scraped;f.programmesMeta=metas;return f})}
+return eaApi({phase:"finalize",ville:res.ville,quartier:body.quartier,transaction:"vente_neuf",annonces:rows,credits:credits,etudeId:body.etudeId})
+.then(function(f){f.cachedProgrammes=cachedCount;f.scrapedProgrammes=scraped;f.programmesMeta=metas;f.etudeId=body.etudeId;return f})}
 return topup(2)}
 /* flux VENTE NEUF complet -> Promise(resultat final) */
 function eaNeufRun(body,prefix){prefix=prefix||"";
 eaResult.innerHTML=eaProgress(prefix+"Recherche des programmes neufs SeLoger Neuf… (~15 s)",null);
 var b={};for(var k in body)b[k]=body[k];b.transaction="vente_neuf";delete b.anneeMin;
-return eaApi(b).then(function(res){if(res.done)return res;return eaNeufFlow(res,b,prefix)})}
+return eaApi(b).then(function(res){if(res.done){res.etudeId=b.etudeId;return res}return eaNeufFlow(res,b,prefix)})}
 /* flux LOCATION complet (start -> pages -> finalize) -> Promise(resultat final) */
 function eaLocRun(body,prefix){prefix=prefix||"";
 eaResult.innerHTML=eaProgress(prefix+"Récupération des annonces SeLoger… (~15 s) &middot; étude liste ≈ 3-4 crédits (charges + DPE en option ensuite)",null);
 return eaApi(body).then(function(res){
-if(res.done)return res;
+if(res.done){res.etudeId=body.etudeId;return res}
 var credits=res.creditsEstimes||1,seen={},all=[];
 /* compteurs filtre commune (anti-debordement) cumules sur start + pages */
 var recoltees=res.recoltees||0,horsCommune=res.horsCommune||0;
 eaCollect(all,seen,res.annonces);
 function runFinalize(){
 eaResult.innerHTML=eaProgress(prefix+"Synthèse location… ("+all.length+" annonces)",credits);
-return eaApi({phase:"finalize",ville:res.ville,quartier:body.quartier,transaction:body.transaction,annonces:all.slice(0,EA_MAX),credits:credits})
-.then(function(fin){if(res.note&&!fin.note)fin.note=res.note;fin.recoltees=recoltees;fin.horsCommune=horsCommune;return fin})}
+return eaApi({phase:"finalize",ville:res.ville,quartier:body.quartier,transaction:body.transaction,annonces:all.slice(0,EA_MAX),credits:credits,etudeId:body.etudeId})
+.then(function(fin){if(res.note&&!fin.note)fin.note=res.note;fin.recoltees=recoltees;fin.horsCommune=horsCommune;fin.etudeId=body.etudeId;return fin})}
 /* ETUDE DE BASE = liste seule (loyers CC, meuble, quartier, prix/m2 CC). Le
    scrape DETAIL (charges/HC/DPE) est OPTIONNEL, lance ensuite par un bouton
    dedie (eaRunDetail) -> etude de base ~3-4 credits. */
@@ -884,14 +884,14 @@ eaComboFD={loc:loc,neuf:nf,insee:null};
 /* bouton fiche on-ecran : present dans les 3 modes (ici fiche COMBINEE loc+neuf) */
 var hasFiche=(loc&&loc.global)||(nf&&nf.global);
 var btn=hasFiche?'<div class="no-print" style="text-align:center;margin:22px 0 6px"><button id="ea-genfiche" class="btn bp" style="padding:14px 30px;font-size:16px">&#128202; Générer la fiche complète</button></div>':'';
-var detailBtn=eaDetailBtnsHtml(loc);
+var detailBtn=eaDetailBtnHtml(loc);
 eaResult.innerHTML=banner
 +'<h3 style="font-size:16px;margin:18px 0 10px">&#127968; Location &middot; détail des annonces</h3>'+eaMeubleTable(loc)+eaPrefiche(loc)+detailBtn
 +'<h3 style="font-size:16px;margin:18px 0 10px">&#127970; Achat neuf &middot; détail des lots</h3>'+eaPreficheNeuf(nf)
 +btn+eaPdfBtnHtml()+'<div id="ea-fiche-zone" style="margin-top:8px"></div>';
 eaWireRows();eaWirePdfBtn();
 var g=document.getElementById("ea-genfiche");if(g)g.onclick=function(){eaGenerateFicheCombo(loc,nf)};
-eaWireDetailBtns(loc,function(loc2){eaShowResultComplete(loc2,nf)});
+eaWireDetailBtn(loc,function(loc2){eaShowResultComplete(loc2,nf)});
 eaRun.disabled=false;eaRun.textContent="Lancer l'étude"}
 /* fiche COMBINEE on-ecran (etude complete) : fiche location (avec charges/HC
    reels + curseur) PUIS fiche neuf (prix + rendement loc/neuf). */
@@ -933,7 +933,8 @@ setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},2000)})
 if(eaRun)eaRun.onclick=function(){
 var ville=document.getElementById("ea-ville").value.trim();if(!ville){toast("Ville obligatoire");return}
 var tr=document.getElementById("ea-transaction").value;
-var body={phase:"start",ville:ville,transaction:tr};
+var etudeId=eaEtudeId(); /* identifiant de LOT, partage par toutes les annonces de ce lancement */
+var body={phase:"start",ville:ville,transaction:tr,etudeId:etudeId};
 var typos=[].map.call(document.querySelectorAll(".ea-typo-cb:checked"),function(c){return c.value});
 /* tableau "typologies" lu par la fonction ; vide ou 6/6 = toutes typologies */
 if(typos.length&&typos.length<6)body.typologies=typos;
@@ -943,9 +944,9 @@ requireAuth(function(){eaRun.disabled=true;eaRun.textContent="Récupération…"
 var p;
 if(tr=="complete"){
 /* sequentiel : location PUIS achat neuf (~5 + ~1+N credits) */
-var bLoc={phase:"start",ville:ville,transaction:"location"};
+var bLoc={phase:"start",ville:ville,transaction:"location",etudeId:etudeId};
 if(body.typologies)bLoc.typologies=body.typologies;if(body.anneeMin!=null)bLoc.anneeMin=body.anneeMin;
-var bNeuf={phase:"start",ville:ville,transaction:"vente_neuf"};
+var bNeuf={phase:"start",ville:ville,transaction:"vente_neuf",etudeId:etudeId};
 if(body.typologies)bNeuf.typologies=body.typologies;
 p=eaLocRun(bLoc,"Étape 1/2 · Location : ").then(function(loc){
 return eaNeufRun(bNeuf,"Étape 2/2 · Achat neuf : ").then(function(nf){eaShowResultComplete(loc,nf)})})
@@ -1028,27 +1029,40 @@ var z=document.getElementById("hist-zone");if(!z)return;
 z.innerHTML='<div class="card" style="padding:28px;text-align:center;color:var(--soft)"><div class="spinner" style="width:26px;height:26px;border-width:3px;margin:0 auto 10px"></div>Chargement de l\'historique…</div>';
 var h={apikey:EA_KEY,Authorization:"Bearer "+EA_KEY};
 Promise.all([
-fetch(EA_SUPA+"/etudes_marche?source=in.(firecrawl,manuel)&transaction=in.(location,vente)&select=ville,quartier,scraped_at,titre,typologie,nb_pieces,surface,loyer_cc,charges,loyer_hc,prix_m2_cc,prix_m2_hc,dpe,ges,url,code_postal,meuble,source,transaction,adresse,lat,lng&order=scraped_at.desc&limit=4000",{headers:h}).then(function(r){return r.ok?r.json():[]}).catch(function(){return[]}),
+fetch(EA_SUPA+"/etudes_marche?source=in.(firecrawl,manuel)&transaction=in.(location,vente)&select=ville,quartier,scraped_at,titre,typologie,nb_pieces,surface,loyer_cc,charges,loyer_hc,prix_m2_cc,prix_m2_hc,dpe,ges,url,code_postal,meuble,source,transaction,adresse,lat,lng,etude_id&order=scraped_at.desc&limit=4000",{headers:h}).then(function(r){return r.ok?r.json():[]}).catch(function(){return[]}),
 fetch(EA_SUPA+"/programmes_neufs?select=*&order=scraped_at.desc&limit=3000",{headers:h}).then(function(r){return r.ok?r.json():[]}).catch(function(){return[]})
 ]).then(function(res){
 var groups={};
-function key(r){return (r.ville||"?")+"||"+(r.quartier||"")+"||"+String(r.scraped_at||"").slice(0,10)}
-res[0].forEach(function(r){var k=key(r);(groups[k]=groups[k]||{loc:[],neuf:[]}).loc.push(r)});
-res[1].forEach(function(r){var k=key(r);(groups[k]=groups[k]||{loc:[],neuf:[]}).neuf.push(r)});
-var list=Object.keys(groups).map(function(k){var p=k.split("||"),g=groups[k];
-var locRows=g.loc.filter(function(r){return r.transaction!="vente"});
+/* 1 etude = 1 LANCEMENT : on groupe par etude_id (identifiant de lot) ; a
+   defaut (anciennes lignes) par ville + horodatage a la MINUTE. PLUS par
+   quartier (qui varie par annonce) ni par typologie -> 1 ligne par etude. */
+function gkey(r){return r.etude_id?("id:"+r.etude_id):((r.ville||"?")+"||"+String(r.scraped_at||"").slice(0,16))}
+/* dedup par URL : base + re-stockage detail = 2 lignes/annonce -> on garde la
+   plus complete (charges/DPE), sinon la plus recente. */
+function eaHistDedup(rows){var m={},out=[],n=0;
+function sc(r){return (r.charges!=null?2:0)+((r.dpe&&/^[A-G]$/i.test(String(r.dpe)))?1:0)}
+rows.forEach(function(r){var k=eaUrlKey(r);if(!k){out.push(r);n++;return}var ex=m[k];
+if(ex===undefined){m[k]=out.length;out.push(r);return}
+var cur=out[m[k]];if(sc(r)>sc(cur)||(sc(r)==sc(cur)&&String(r.scraped_at)>String(cur.scraped_at)))out[m[k]]=r});
+return out}
+res[0].forEach(function(r){var k=gkey(r);(groups[k]=groups[k]||{loc:[],neuf:[]}).loc.push(r)});
+res[1].forEach(function(r){var k=gkey(r);(groups[k]=groups[k]||{loc:[],neuf:[]}).neuf.push(r)});
+var list=Object.keys(groups).map(function(k){var g=groups[k];
+var loc=eaHistDedup(g.loc);
+var locRows=loc.filter(function(r){return r.transaction!="vente"});
 var lm=locRows.length?eaSynthMeubleFront(locRows):null;
 var nfS=g.neuf.length?eaSynthNeufFront(g.neuf):null;
-var ts="";g.loc.concat(g.neuf).forEach(function(r){if(r.scraped_at>ts)ts=r.scraped_at});
-var manuel=g.loc.length>0&&g.loc.every(function(r){return r.source=="manuel"})&&!g.neuf.length;
-return {ville:p[0],quartier:p[1]||null,jour:p[2],ts:ts,loc:g.loc,neuf:g.neuf,manuel:manuel,
+var ts="",ville="",eid=null;loc.concat(g.neuf).forEach(function(r){if(r.scraped_at>ts)ts=r.scraped_at;if(!ville&&r.ville)ville=r.ville;if(!eid&&r.etude_id)eid=r.etude_id});
+var typos={};loc.forEach(function(r){if(r.typologie)typos[r.typologie]=1});
+var manuel=loc.length>0&&loc.every(function(r){return r.source=="manuel"})&&!g.neuf.length;
+return {ville:ville,etudeId:eid,ts:ts,loc:loc,neuf:g.neuf,manuel:manuel,typos:Object.keys(typos).sort(),
 m:lm&&lm.global?lm.global.meuble:null,nm:lm&&lm.global?lm.global.non_meuble:null,
 neufM2:nfS&&nfS.global?nfS.global.prix_m2_cc_pondere:null}})
 .sort(function(a,b){return a.ts<b.ts?1:-1});
 eaHistGroups=list;
 if(!list.length){z.innerHTML='<div class="card" style="padding:28px;text-align:center;color:var(--soft)">Aucune étude en base pour le moment. Lancez une étude depuis l\'onglet «&nbsp;Étude auto&nbsp;».</div>';return}
 var nd='<span style="color:var(--soft)">&mdash;</span>';
-var body=list.map(function(g,i){return '<tr class="ea-rowlink" data-i="'+i+'" style="cursor:pointer'+(g.manuel?';background:#FFF7ED':'')+'"><td><b>'+eaEsc(g.ville)+'</b>'+(g.quartier?' <span style="color:var(--soft)">&middot; '+eaEsc(g.quartier)+'</span>':'')+(g.manuel?' <span class="ea-pill" style="background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;margin-left:6px">manuel</span>':'')+'</td><td>'+eaDate(g.ts)+'</td><td>'+(g.m!=null?e1(g.m)+' &euro;/m&sup2;':nd)+'</td><td>'+(g.nm!=null?e1(g.nm)+' &euro;/m&sup2;':nd)+'</td><td>'+(g.neufM2!=null?euro(Math.round(g.neufM2))+' &euro;/m&sup2;':nd)+'</td><td style="color:var(--soft);font-size:12px">'+(g.loc.length?g.loc.length+' annonce'+(g.loc.length>1?'s':''):'')+(g.loc.length&&g.neuf.length?' &middot; ':'')+(g.neuf.length?g.neuf.length+' lots neufs':'')+'</td></tr>'}).join("");
+var body=list.map(function(g,i){return '<tr class="ea-rowlink" data-i="'+i+'" style="cursor:pointer'+(g.manuel?';background:#FFF7ED':'')+'"><td><b>'+eaEsc(g.ville)+'</b>'+(g.manuel?' <span class="ea-pill" style="background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;margin-left:6px">manuel</span>':'')+(g.typos.length?' <span style="color:var(--soft);font-size:12px">&middot; '+g.typos.join(", ")+'</span>':'')+'</td><td>'+eaDate(g.ts)+'</td><td>'+(g.m!=null?e1(g.m)+' &euro;/m&sup2;':nd)+'</td><td>'+(g.nm!=null?e1(g.nm)+' &euro;/m&sup2;':nd)+'</td><td>'+(g.neufM2!=null?euro(Math.round(g.neufM2))+' &euro;/m&sup2;':nd)+'</td><td style="color:var(--soft);font-size:12px">'+(g.loc.length?g.loc.length+' annonce'+(g.loc.length>1?'s':''):'')+(g.loc.length&&g.neuf.length?' &middot; ':'')+(g.neuf.length?g.neuf.length+' lots neufs':'')+'</td></tr>'}).join("");
 z.innerHTML='<div class="card"><div class="dl" style="margin-top:0;padding:18px"><div style="overflow-x:auto;border:1px solid var(--line);border-radius:12px"><table><thead>'
 +'<tr><th rowspan="2" style="vertical-align:bottom">Ville</th><th rowspan="2" style="vertical-align:bottom">Date</th><th colspan="2" style="text-align:center;border-bottom:2px solid #185FA5;color:#185FA5">Location</th><th style="text-align:center;border-bottom:2px solid #0F6E56;color:#0F6E56">Vente</th><th rowspan="2"></th></tr>'
 +'<tr><th>Loyer/m&sup2; meublé</th><th>Loyer/m&sup2; non meublé</th><th>Prix neuf/m&sup2;</th></tr>'
@@ -1059,10 +1073,10 @@ function eaHistOpen(i){
 var g=eaHistGroups&&eaHistGroups[i];if(!g)return;
 var loc=null,nf=null;
 if(g.loc.length){var sy=eaSynthLoc(g.loc,"location"),cs=eaSynthChargesFront(g.loc);
-loc={done:true,fromHistory:true,transaction:"location",ville:g.ville,quartier:g.quartier,scrapedAt:g.ts,creditsEstimes:0,
+loc={done:true,fromHistory:true,transaction:"location",ville:g.ville,quartier:null,etudeId:g.etudeId,scrapedAt:g.ts,creditsEstimes:0,
 annoncesRetenues:g.loc.length,annonces:g.loc,parTypologie:sy.parTypologie,global:sy.global,loyersMeuble:eaSynthMeubleFront(g.loc),charges:cs,dpeFrequent:cs.dpe_frequent}}
 if(g.neuf.length){var sn=eaSynthNeufFront(g.neuf);
-nf={done:true,fromHistory:true,transaction:"vente_neuf",ville:g.ville,quartier:g.quartier,scrapedAt:g.ts,creditsEstimes:0,
+nf={done:true,fromHistory:true,transaction:"vente_neuf",ville:g.ville,quartier:null,etudeId:g.etudeId,scrapedAt:g.ts,creditsEstimes:0,
 annoncesRetenues:g.neuf.length,annonces:g.neuf,parTypologie:sn.parTypologie,global:sn.global}}
 show("etude-auto");
 if(loc&&nf)eaShowResultComplete(loc,nf);

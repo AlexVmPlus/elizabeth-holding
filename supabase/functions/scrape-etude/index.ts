@@ -102,6 +102,8 @@ interface ReqBody {
   // deno-lint-ignore no-explicit-any
   annonces?: any[];
   credits?: number; // credits reellement consommes, comptes par le front
+  etudeId?: string; // identifiant de LOT : meme valeur sur toutes les annonces d'un lancement
+  scrapedAt?: string; // reutilise l'horodatage du lancement (re-stockage detail)
 }
 
 interface Env {
@@ -277,8 +279,9 @@ function toAnnonce(r: any) {
 }
 
 // deno-lint-ignore no-explicit-any
-function toInsertRow(a: any, transaction: Transaction, scrapedAt: string) {
+function toInsertRow(a: any, transaction: Transaction, scrapedAt: string, etudeId?: string | null) {
   return {
+    etude_id: etudeId ?? a.etude_id ?? null,
     ville: a.ville,
     quartier: a.quartier ?? null,
     code_postal: a.code_postal ?? null,
@@ -330,6 +333,7 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   const transaction: Transaction = body.transaction === "vente" ? "vente" : "location";
   const typoFilter = parseTypologies(body.typologies ?? body.typologie);
   const anneeMin = num(body.anneeMin);
+  const etudeId = body.etudeId ?? null; // identifiant de lot (groupe l'historique)
   if (!ville) return json({ error: "Champ 'ville' obligatoire" }, 400);
 
   const applyFilters = makeFilters(typoFilter, anneeMin, transaction);
@@ -413,7 +417,7 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
         : "Aucune annonce exploitable (autre ville/transaction, retirez des filtres).",
     });
   }
-  await insertRows(env, partielles.map((a) => toInsertRow(a, transaction, scrapedAt))).catch((e) => console.error("[start] insert:", e));
+  await insertRows(env, partielles.map((a) => toInsertRow(a, transaction, scrapedAt, etudeId))).catch((e) => console.error("[start] insert:", e));
   const s = synthesize(partielles, transaction);
   return json({
     done: true, creditsEstimes: credits, scrapedAt, fcCache,
@@ -675,7 +679,7 @@ async function handleFinalizeNeuf(body: ReqBody, env: Env): Promise<Response> {
         },
         body: JSON.stringify(fresh.map((a) => {
           const { cached: _c, ...row } = a;
-          return { ...row, scraped_at: scrapedAt };
+          return { ...row, scraped_at: scrapedAt, etude_id: body.etudeId ?? null };
         })),
       });
       if (!ins.ok) console.error(`[neuf-finalize] insert HTTP ${ins.status}: ${(await ins.text()).slice(0, 200)}`);
@@ -787,8 +791,10 @@ async function handleFinalize(body: ReqBody, env: Env): Promise<Response> {
   const annonces = Array.isArray(body.annonces) ? body.annonces : [];
   if (!annonces.length) return json({ error: "annonces manquantes" }, 400);
 
-  const scrapedAt = new Date().toISOString();
-  const rows = annonces.map((a) => toInsertRow(a, transaction, scrapedAt));
+  // scrapedAt reutilise du lancement si fourni (re-stockage detail) -> meme lot
+  const scrapedAt = body.scrapedAt || new Date().toISOString();
+  const etudeId = body.etudeId ?? null;
+  const rows = annonces.map((a) => toInsertRow(a, transaction, scrapedAt, etudeId));
   try {
     await insertRows(env, rows);
   } catch (e) {
