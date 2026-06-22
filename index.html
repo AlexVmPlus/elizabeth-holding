@@ -435,6 +435,20 @@ var EA_FN="https://wywndgujgtyyzzhviagu.supabase.co/functions/v1/scrape-etude";
 var EA_KEY="sb_publishable_X0-vzzI4TjUyK2UBboENqw_iH1GT6Rw";
 var eaRun=document.getElementById("ea-run"),eaResult=document.getElementById("ea-result");
 function eaEsc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]})}
+/* formatage AFFICHAGE du quartier (la donnee brute vient du chemin d'URL SeLoger,
+   ex "Saint-Jean-Belcier-Carle-Vernet-Albert-1er") : tirets->espaces, petits mots
+   en minuscule, accents evidents, et on garde le 1er quartier (max 3 mots / ~30
+   car.) avec … si tronque. "-" reste "-". */
+var EA_QSMALL={de:1,du:1,des:1,la:1,le:1,les:1,l:1,d:1,et:1,sur:1,sous:1,au:1,aux:1,a:1,en:1};
+var EA_QACC={hotel:"Hôtel",fondaudege:"Fondaudège",eglise:"Église",etoile:"Étoile",chateau:"Château",theatre:"Théâtre",hopital:"Hôpital",general:"Général"};
+function eaFmtQuartier(q){if(q==null)return "-";q=String(q).trim();if(!q||q=="-")return "-";
+var words=q.split(/[-\s]+/).filter(Boolean);if(!words.length)return "-";
+var trunc=words.length>3,kept=trunc?words.slice(0,3):words;
+function fmt(w,i){var low=w.toLowerCase();if(i>0&&EA_QSMALL[low])return low;return EA_QACC[low]||(low.charAt(0).toUpperCase()+low.slice(1))}
+var parts=kept.map(fmt);
+if(parts.join(" ").length>30){var acc=[],len=0;for(var i=0;i<parts.length;i++){if(acc.length&&len+parts[i].length+1>28)break;acc.push(parts[i]);len+=parts[i].length+1}parts=acc;trunc=true}
+while(trunc&&parts.length>1&&EA_QSMALL[parts[parts.length-1].toLowerCase()])parts.pop();
+return parts.join(" ")+(trunc?"…":"")}
 function eaVal(id){var el=document.getElementById(id);if(!el)return null;var s=(el.value||"").trim();if(s==="")return null;var n=parseFloat(s);return isNaN(n)?null:n}
 function eaDate(iso){try{var d=new Date(iso);return d.toLocaleDateString("fr-FR")+" à "+d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}catch(e){return eaEsc(iso)}}
 /* loyer/m2 (location) en 1 decimale ; prix/m2 (vente) en entier ; null -> n/d */
@@ -559,7 +573,7 @@ return '<tr'+(u?' class="ea-rowlink" data-url="'+u+'"':'')+'><td><b>'+eaEsc(a.ty
 '<td>'+eaPrix(a.prix_m2_hc,j.transaction)+'</td>'+
 '<td>'+(vente?nd:eaMeubleBadge(a))+'</td>'+
 '<td>'+(a.dpe?'<span class="ea-pill">'+eaEsc(a.dpe)+'</span>':nd)+'</td>'+
-'<td>'+eaEsc(a.quartier||"-")+'</td>'+
+'<td>'+eaEsc(eaFmtQuartier(a.quartier))+'</td>'+
 '<td>'+(u?'<a href="'+u+'" target="_blank" rel="noopener" class="ea-link">Voir &rarr;</a>':"-")+'</td></tr>'}).join("");
 var cP=vente?"Prix":"Loyer CC",cC=vente?"&mdash;":"Charges",cH=vente?"&mdash;":"Loyer HC";
 var table='<div class="dl" style="margin-top:0;padding:0 18px 14px"><div style="max-height:540px;overflow:auto;border:1px solid var(--line);border-radius:12px"><table><thead><tr><th>Type</th><th>Surface</th><th>'+cP+'</th><th>'+cC+'</th><th>'+cH+'</th><th>'+(vente?"Prix/m&sup2;":"Loyer/m&sup2; CC")+'</th><th>'+(vente?"&mdash;":"Loyer/m&sup2; HC")+'</th><th>'+(vente?"&mdash;":"Meublé")+'</th><th>DPE</th><th>Quartier</th><th></th></tr></thead><tbody>'+body+'</tbody></table></div></div>';
