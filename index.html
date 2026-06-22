@@ -1062,7 +1062,7 @@ var z=document.getElementById("hist-zone");if(!z)return;
 z.innerHTML='<div class="card" style="padding:28px;text-align:center;color:var(--soft)"><div class="spinner" style="width:26px;height:26px;border-width:3px;margin:0 auto 10px"></div>Chargement de l\'historique…</div>';
 var h={apikey:EA_KEY,Authorization:"Bearer "+EA_KEY};
 Promise.all([
-fetch(EA_SUPA+"/etudes_marche?source=in.(firecrawl,manuel)&transaction=in.(location,vente)&select=ville,quartier,scraped_at,titre,typologie,nb_pieces,surface,loyer_cc,charges,loyer_hc,prix_m2_cc,prix_m2_hc,dpe,ges,url,code_postal,meuble,source,transaction,adresse,lat,lng,etude_id&order=scraped_at.desc&limit=4000",{headers:h}).then(function(r){return r.ok?r.json():[]}).catch(function(){return[]}),
+fetch(EA_SUPA+"/etudes_marche?source=in.(firecrawl,manuel)&transaction=in.(location,vente)&select=ville,quartier,scraped_at,titre,typologie,nb_pieces,surface,loyer_cc,charges,loyer_hc,prix_m2_cc,prix_m2_hc,dpe,ges,url,code_postal,meuble,source,transaction,adresse,lat,lng&order=scraped_at.desc&limit=4000",{headers:h}).then(function(r){return r.ok?r.json():[]}).catch(function(){return[]}),
 fetch(EA_SUPA+"/programmes_neufs?select=*&order=scraped_at.desc&limit=3000",{headers:h}).then(function(r){return r.ok?r.json():[]}).catch(function(){return[]})
 ]).then(function(res){
 var groups={};
