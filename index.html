@@ -1004,18 +1004,19 @@ if(eaTr){eaTr.onchange=eaTrToggle;eaTrToggle()}
 var eaHistGroups=null;
 /* repliques front des syntheses serveur (ponderation par surface) */
 function eaSynthLoc(rows,transaction){
+/* pondere par surface ; si surface absente/0, poids=1 (sinon le prix/m2 serait
+   ignore -> "—" alors que prix_m2_cc existe). */
 function calc(arr){var n=arr.length;if(!n)return null;var ss=0,scc=0,sscc=0,pm=0,npm=0;
-arr.forEach(function(r){var su=+r.surface||0;ss+=su;if(r.prix_m2_cc!=null&&su>0){scc+=r.prix_m2_cc*su;sscc+=su;pm+=ru(r.prix_m2_cc);npm++}});
-function ru(x){return x}
+arr.forEach(function(r){var su=+r.surface||0;ss+=su;var p=+r.prix_m2_cc;if(isFinite(p)&&p>0){var w=su>0?su:1;scc+=p*w;sscc+=w;pm+=p;npm++}});
 return {nb_annonces:n,surface_moyenne:Math.round(ss/n*10)/10,prix_m2_cc_pondere:sscc>0?Math.round(scc/sscc*100)/100:null,prix_m2_hc_pondere:null,prix_m2_cc_moyen:npm?Math.round(pm/npm*100)/100:null,prix_m2_hc_moyen:null,nb_avec_hc:0}}
 var groups={};rows.forEach(function(r){var t=r.typologie||"autre";(groups[t]=groups[t]||[]).push(r)});
 var pt={};["T1","T2","T3","T4","T5","T6","autre"].forEach(function(t){if(groups[t])pt[t]=calc(groups[t])});
 return {parTypologie:pt,global:calc(rows)}}
 function eaSynthMeubleFront(rows){
 function calc(arr){var sNM=0,wNM=0,oNM=0,sM=0,wM=0,oM=0;
-arr.forEach(function(r){if(r.prix_m2_cc==null||!(+r.surface>0))return;var w=+r.surface;
-if(r.meuble){sM+=r.prix_m2_cc*w;wM+=w;oM++;sNM+=r.prix_m2_cc*0.85*w;wNM+=w}
-else{sNM+=r.prix_m2_cc*w;wNM+=w;oNM++;sM+=r.prix_m2_cc*1.15*w;wM+=w}});
+arr.forEach(function(r){var p=+r.prix_m2_cc;if(!isFinite(p)||p<=0)return;var w=+r.surface>0?+r.surface:1; /* meuble null -> traite comme non meuble */
+if(r.meuble===true){sM+=p*w;wM+=w;oM++;sNM+=p*0.85*w;wNM+=w}
+else{sNM+=p*w;wNM+=w;oNM++;sM+=p*1.15*w;wM+=w}});
 if(!wNM&&!wM)return null;
 return {non_meuble:wNM?Math.round(sNM/wNM*100)/100:null,non_meuble_source:oNM>0?"observe":"estime",nb_non_meuble:oNM,
 meuble:wM?Math.round(sM/wM*100)/100:null,meuble_source:oM>0?"observe":"estime",nb_meuble:oM}}
