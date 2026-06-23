@@ -639,15 +639,25 @@ if(!nb||!j.annonces||!j.annonces.length){return '<div class="card" style="paddin
 var tr=j.transaction=="vente"?"Vente":"Location",vente=j.transaction=="vente";
 var head='<div class="eahead"><div class="k">Pré-fiche &middot; annonces sourcées</div><h2>'+eaEsc(j.ville)+(j.quartier?' &middot; '+eaEsc(j.quartier):'')+'</h2><div class="s">'+tr+' &middot; '+nb+' annonce'+(nb>1?'s':'')+' sourcée'+(nb>1?'s':'')+' &middot; '+eaDate(j.scrapedAt)+'</div></div>';
 var nd='<span style="color:var(--soft)">n/d</span>';
+/* HC estime (sans scrape charges) : charges = ratio x surface, HC = CC - charges.
+   ratio = moyenne reelle observee si dispo, sinon defaut 2,5 €/m²/mois. */
+var hcRatio=(j.charges&&j.charges.ratio_m2_moyen!=null)?j.charges.ratio_m2_moyen:2.5;
+var em=' <span style="color:var(--soft);font-size:10px">est.</span>';
 var body=j.annonces.map(function(a){var url=(a.url||a.lien||a.link||a.permalink||"").trim().split(/\s/)[0].replace(/["')\]]+$/,"");var u=url?eaEsc(url):"";
 var prixAff=a.loyer_cc!=null?euro(a.loyer_cc)+" &euro;":(a.prix_m2_cc!=null&&a.surface?euro(Math.round(a.prix_m2_cc*a.surface))+" &euro;":"-");
+var chC=nd,hcC=nd,pmHC=nd;
+if(!vente){var su=+a.surface||0,cc=(a.loyer_cc!=null?+a.loyer_cc:null),che=null,hce=null,pe=null;
+if(su>0&&cc!=null){var e=Math.round(hcRatio*su);if(e<cc){che=e;hce=cc-e;pe=Math.round((cc-e)/su*100)/100}}
+chC=a.charges!=null?euro(a.charges)+" &euro;":(che!=null?euro(che)+" &euro;"+em:nd);
+hcC=a.loyer_hc!=null?euro(a.loyer_hc)+" &euro;":(hce!=null?euro(hce)+" &euro;"+em:nd);
+pmHC=a.prix_m2_hc!=null?e1(a.prix_m2_hc)+" &euro;":(pe!=null?e1(pe)+" &euro;"+em:nd)}
 return '<tr'+(u?' class="ea-rowlink" data-url="'+u+'"':'')+'><td><b>'+eaEsc(a.typologie||"-")+'</b><div style="color:var(--soft);font-size:12px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+eaEsc(a.titre||"")+'</div></td>'+
 '<td>'+(a.surface!=null?e1(a.surface)+" m&sup2;":"-")+'</td>'+
 '<td>'+prixAff+'</td>'+
-'<td>'+(vente?nd:(a.charges!=null?euro(a.charges)+" &euro;":nd))+'</td>'+
-'<td>'+(vente?nd:(a.loyer_hc!=null?euro(a.loyer_hc)+" &euro;":nd))+'</td>'+
+'<td>'+chC+'</td>'+
+'<td>'+hcC+'</td>'+
 '<td>'+eaPrix(a.prix_m2_cc,j.transaction)+'</td>'+
-'<td>'+eaPrix(a.prix_m2_hc,j.transaction)+'</td>'+
+'<td>'+pmHC+'</td>'+
 '<td>'+(vente?nd:eaMeubleBadge(a))+'</td>'+
 '<td>'+(function(){var d=a.dpe&&/^[A-G]$/i.test(String(a.dpe).trim())?String(a.dpe).trim().toUpperCase():null;return d?'<span class="ea-pill">'+d+'</span>':nd})()+'</td>'+
 '<td>'+eaEsc(eaFmtQuartier(a.quartier))+'</td>'+
@@ -658,6 +668,7 @@ var notes=[];if(j.filtres){var f=j.filtres;
 if(f.typologie)notes.push("typologie "+f.typologie);
 if(f.anneeMin)notes.push("année &ge; "+f.anneeMin);}
 var filtreLine=notes.length?'<div style="padding:0 24px 6px;color:var(--soft);font-size:13px">Filtres : '+notes.join(" &middot; ")+'</div>':'';
+if(!vente)filtreLine+='<div style="padding:0 24px 6px;color:var(--soft);font-size:12px">&#9432; Loyer CC = charges comprises (réel). « est. » = HC estimé via '+e1(hcRatio)+' &euro;/m&sup2;/mois ; charges réelles via le bouton « Récupérer charges + DPE ».</div>';
 if(j.note)filtreLine+='<div style="padding:0 24px 6px;color:#9a6700;font-size:13px">&#9888;&#65039; '+eaEsc(j.note)+'</div>';
 var communeLine=(j.horsCommune||j.recoltees)?'<div style="padding:8px 24px 2px;color:'+((j.horsCommune||0)>0?"#0a7a30":"var(--soft)")+';font-size:13px;font-weight:600">&#128205; '+nb+' annonce'+(nb>1?'s':'')+' retenue'+(nb>1?'s':'')+(j.recoltees?' sur '+j.recoltees+' récupérée'+(j.recoltees>1?'s':''):'')+' après filtre commune ('+eaEsc(j.ville)+')'+((j.horsCommune||0)>0?' &middot; '+j.horsCommune+' hors commune écartée'+(j.horsCommune>1?'s':''):'')+'</div>':'';
 var cg=j.charges&&j.charges.global;
@@ -1176,12 +1187,16 @@ var body=list.map(function(g,i){
 var mv=eaHistMeubleVals((g.loc||[]).filter(function(r){return r&&r.transaction!="vente"}));
 var cM=(mv.m!=null&&isFinite(mv.m))?e1(mv.m)+(mv.mEst?'*':'')+' &euro;/m&sup2;':nd;
 var cNM=(mv.nm!=null&&isFinite(mv.nm))?e1(mv.nm)+(mv.nmEst?'*':'')+' &euro;/m&sup2;':nd;
-return '<tr class="ea-rowlink" data-i="'+i+'" style="cursor:pointer'+(g.manuel?';background:#FFF7ED':'')+'"><td><b>'+eaEsc(g.ville)+'</b>'+(g.manuel?' <span class="ea-pill" style="background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;margin-left:6px">manuel</span>':'')+(g.typos.length?' <span style="color:var(--soft);font-size:12px">&middot; '+g.typos.join(", ")+'</span>':'')+'</td><td>'+eaDate(g.ts)+'</td><td>'+cM+'</td><td>'+cNM+'</td><td>'+(g.neufM2!=null?euro(Math.round(g.neufM2))+' &euro;/m&sup2;':nd)+'</td><td style="color:var(--soft);font-size:12px">'+(g.loc.length?g.loc.length+' annonce'+(g.loc.length>1?'s':''):'')+(g.loc.length&&g.neuf.length?' &middot; ':'')+(g.neuf.length?g.neuf.length+' lots neufs':'')+'</td></tr>'}).join("");
-z.innerHTML='<div class="card"><div class="dl" style="margin-top:0;padding:18px"><div style="overflow-x:auto;border:1px solid var(--line);border-radius:12px"><table><thead>'
+return '<tr class="ea-rowlink" data-i="'+i+'" style="cursor:pointer'+(g.manuel?';background:#FFF7ED':'')+'"><td><input type="checkbox" class="ea-mcb" data-i="'+i+'" onclick="event.stopPropagation()" title="Sélectionner pour regrouper" style="margin-right:7px;vertical-align:middle;accent-color:var(--blue)"><b>'+eaEsc(g.ville)+'</b>'+(g.manuel?' <span class="ea-pill" style="background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;margin-left:6px">manuel</span>':'')+(g.typos.length?' <span style="color:var(--soft);font-size:12px">&middot; '+g.typos.join(", ")+'</span>':'')+'</td><td>'+eaDate(g.ts)+'</td><td>'+cM+'</td><td>'+cNM+'</td><td>'+(g.neufM2!=null?euro(Math.round(g.neufM2))+' &euro;/m&sup2;':nd)+'</td><td style="color:var(--soft);font-size:12px">'+(g.loc.length?g.loc.length+' annonce'+(g.loc.length>1?'s':''):'')+(g.loc.length&&g.neuf.length?' &middot; ':'')+(g.neuf.length?g.neuf.length+' lots neufs':'')+'</td></tr>'}).join("");
+z.innerHTML='<div class="card"><div class="dl" style="margin-top:0;padding:18px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap"><button id="ea-master-btn" class="btn bg2" style="padding:9px 16px;font-size:14px" disabled>&#128230; Regrouper en étude maître</button><span id="ea-master-cnt" style="color:var(--soft);font-size:13px">Cochez 2 études (ou plus) pour les combiner.</span></div><div style="overflow-x:auto;border:1px solid var(--line);border-radius:12px"><table><thead>'
 +'<tr><th rowspan="2" style="vertical-align:bottom">Ville</th><th rowspan="2" style="vertical-align:bottom">Date</th><th colspan="2" style="text-align:center;border-bottom:2px solid #185FA5;color:#185FA5">Location</th><th style="text-align:center;border-bottom:2px solid #0F6E56;color:#0F6E56">Vente</th><th rowspan="2"></th></tr>'
 +'<tr><th>Loyer/m&sup2; meublé</th><th>Loyer/m&sup2; non meublé</th><th>Prix neuf/m&sup2;</th></tr>'
 +'</thead><tbody>'+body+'</tbody></table></div><div style="color:var(--soft);font-size:13px;margin-top:10px">Cliquez sur une ligne pour rouvrir l\'étude depuis la base (0 crédit Firecrawl). Lignes ambrées = saisies manuelles.</div></div></div>';
-[].forEach.call(z.querySelectorAll("tr.ea-rowlink"),function(tr){tr.onclick=function(){eaHistOpen(+tr.getAttribute("data-i"))}})})
+[].forEach.call(z.querySelectorAll("tr.ea-rowlink"),function(tr){tr.onclick=function(){eaHistOpen(+tr.getAttribute("data-i"))}});
+function eaMasterSel(){return [].filter.call(z.querySelectorAll(".ea-mcb"),function(c){return c.checked}).map(function(c){return +c.getAttribute("data-i")})}
+function eaMasterUpd(){var s=eaMasterSel(),b=document.getElementById("ea-master-btn"),c=document.getElementById("ea-master-cnt");if(b)b.disabled=s.length<2;if(c)c.textContent=s.length<2?"Cochez 2 études (ou plus) pour les combiner.":s.length+" études sélectionnées — cliquez pour combiner en étude maître.";}
+[].forEach.call(z.querySelectorAll(".ea-mcb"),function(c){c.onchange=eaMasterUpd});
+var mb=document.getElementById("ea-master-btn");if(mb)mb.onclick=function(){eaShowMaster(eaMasterSel())};})
 .catch(function(e){console.error("historique",e);z.innerHTML='<div class="card" style="padding:28px;text-align:center;color:var(--soft)">Impossible de charger l\'historique.</div>'})}
 function eaHistOpen(i){
 var g=eaHistGroups&&eaHistGroups[i];if(!g)return;
@@ -1198,6 +1213,29 @@ else if(nf)eaShowResult(nf);
 else if(loc)eaShowResult(loc);
 window.scrollTo(0,0);
 var er=document.getElementById("ea-result");if(er)er.scrollIntoView({behavior:"smooth",block:"start"})}
+/* ETUDE MAITRE : combine plusieurs etudes de l'historique (regroupement a
+   l'AFFICHAGE, pas de stockage). Synthese combinee (annonces dedoublonnees par
+   URL) + detail depliable de chaque sous-etude. */
+function eaShowMaster(idxs){
+var groups=(idxs||[]).map(function(i){return eaHistGroups&&eaHistGroups[i]}).filter(Boolean);
+if(groups.length<2){toast("Sélectionnez au moins 2 études");return}
+var ville=groups[0].ville,seenL={},loc=[],seenN={},neuf=[];
+groups.forEach(function(g){(g.loc||[]).forEach(function(a){var k=eaUrlKey(a);if(k&&seenL[k])return;if(k)seenL[k]=1;loc.push(a)});
+(g.neuf||[]).forEach(function(a){var k=eaUrlKey(a);if(k&&seenN[k])return;if(k)seenN[k]=1;neuf.push(a)})});
+var sy=eaSynthLoc(loc,"location"),cs=eaSynthChargesFront(loc);
+var locRes={done:true,fromHistory:true,isMaster:true,transaction:"location",ville:ville,quartier:null,scrapedAt:groups[0].ts,creditsEstimes:0,
+annoncesRetenues:loc.length,annonces:loc,parTypologie:sy.parTypologie,global:sy.global,loyersMeuble:eaSynthMeubleFront(loc),charges:cs,dpeFrequent:cs.dpe_frequent};
+var nfRes=null;if(neuf.length){var sn=eaSynthNeufFront(neuf);nfRes={done:true,fromHistory:true,transaction:"vente_neuf",ville:ville,quartier:null,scrapedAt:groups[0].ts,creditsEstimes:0,annoncesRetenues:neuf.length,annonces:neuf,parTypologie:sn.parTypologie,global:sn.global}}
+show("etude-auto");
+if(nfRes)eaShowResultComplete(locRes,nfRes);else eaShowResult(locRes);
+/* annexes : detail depliable de chaque sous-etude */
+var subs=groups.map(function(g,i){var lm=eaHistMeubleVals((g.loc||[]).filter(function(r){return r.transaction!="vente"}));
+var typos=(g.typos&&g.typos.length)?g.typos.join(", "):"toutes typologies";
+return '<details style="border:1px solid var(--line);border-radius:10px;padding:9px 13px;margin-bottom:8px"><summary style="cursor:pointer;font-weight:600">'+eaEsc(g.ville)+' &middot; '+eaDate(g.ts)+' &middot; '+((g.loc||[]).length)+' annonce'+(((g.loc||[]).length)>1?'s':'')+((g.neuf||[]).length?' + '+g.neuf.length+' lots neufs':'')+'</summary><div style="margin-top:8px;color:var(--soft);font-size:13px">Typologies : '+eaEsc(typos)+' &middot; Loyer/m² non meublé '+(lm.nm!=null?e1(lm.nm)+' €':'—')+' &middot; meublé '+(lm.m!=null?e1(lm.m)+(lm.mEst?'*':'')+' €':'—')+'</div><button class="btn bg2" data-mo="'+idxs[i]+'" style="margin-top:8px;padding:7px 14px;font-size:13px">Ouvrir cette sous-étude</button></details>'}).join("");
+var box='<div class="card" style="margin-top:14px"><h3 style="font-size:16px;margin:0 0 4px">&#128230; Étude maître &middot; '+eaEsc(ville)+'</h3><div style="color:var(--soft);font-size:13px;margin-bottom:10px">'+groups.length+' sous-études combinées &middot; '+loc.length+' annonce'+(loc.length>1?'s':'')+' (dédoublonnées)'+(neuf.length?' &middot; '+neuf.length+' lots neufs':'')+'. Synthèse combinée ci-dessus ; détail par sous-étude :</div>'+subs+'</div>';
+eaResult.insertAdjacentHTML("beforeend",box);
+[].forEach.call(eaResult.querySelectorAll("button[data-mo]"),function(b){b.onclick=function(){eaHistOpen(+b.getAttribute("data-mo"))}});
+window.scrollTo(0,0);var er=document.getElementById("ea-result");if(er)er.scrollIntoView({behavior:"smooth",block:"start"})}
 
 /* ====== NAVIGATION ====== */
 function show(v,sc){document.querySelectorAll(".view").forEach(function(x){x.classList.remove("active")});var el=document.getElementById("view-"+v);if(el)el.classList.add("active");window.scrollTo(0,0);
