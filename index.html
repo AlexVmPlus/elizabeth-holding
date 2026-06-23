@@ -181,11 +181,12 @@ tr.ea-rowlink{cursor:pointer}tr.ea-rowlink:hover td{background:var(--bsoft)}.ea-
 <div class="st" style="text-align:left"><div class="k">Étude de marché automatique</div><h2 style="margin-top:6px">Générez une étude en temps réel</h2><p style="margin-left:0">Générez une étude de marché automatique à partir des annonces SeLoger en temps réel. Indiquez une ville, le scraping et l'analyse sont automatiques.</p></div>
 <div class="fc" style="max-width:700px">
 <h3>Paramètres de l'étude</h3><p class="hint">Ville (ou arrondissement, ex. « Paris 8 ») obligatoire. Choisissez le type de transaction puis lancez l'analyse.</p>
-<div class="g2"><div class="fld" id="ea-vwrap" style="position:relative"><label>Ville *</label><input id="ea-ville" placeholder="ex. Bordeaux, Paris 8, 75008..." autocomplete="off"><div class="sugg" id="ea-vsg" style="top:calc(100% + 4px)"></div></div><div class="fld"><label>Quartier (optionnel)</label><input id="ea-quartier" list="ea-qdl" placeholder="ex. Saint-Jean-Belcier" autocomplete="off"><datalist id="ea-qdl"></datalist><span class="hint" style="display:block;margin-top:4px">Location filtrée sur ce quartier ; le neuf reste sur toute la ville.</span><span id="ea-q-status" class="hint" style="display:block;margin-top:2px;color:var(--blue)"></span></div></div>
+<div class="g2"><div class="fld" id="ea-vwrap" style="position:relative"><label>Ville *</label><input id="ea-ville" placeholder="ex. Bordeaux, Paris 8, 75008..." autocomplete="off"><div class="sugg" id="ea-vsg" style="top:calc(100% + 4px)"></div></div><div class="fld"><label>Quartiers (optionnel, plusieurs possibles)</label><input id="ea-quartier" list="ea-qdl" placeholder="Choisir/taper un quartier puis Entrée" autocomplete="off"><datalist id="ea-qdl"></datalist><div id="ea-qchips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div><span class="hint" style="display:block;margin-top:4px">Location filtrée sur ces quartiers (résultats séparés) ; le neuf reste sur toute la ville.</span><span id="ea-q-status" class="hint" style="display:block;margin-top:2px;color:var(--blue)"></span></div></div>
 <div class="fld"><label>Transaction</label><select id="ea-transaction"><option value="location">Location</option><option value="vente_neuf">Vente (Neuf)</option><option value="complete">Étude complète (Location + Achat neuf)</option></select><span class="hint" style="display:block;margin-top:4px" id="ea-trhint">Vente (Neuf) = programmes promoteurs SeLoger Neuf. Étude complète = location PUIS achat neuf, avec fiche PDF combinée (rendement).</span></div>
 <div class="gt" style="margin-top:18px">Filtres (optionnels)</div>
 <div class="g2"><div class="fld"><label>Typologies (plusieurs possibles)</label><div id="ea-typos" style="display:flex;flex-wrap:wrap;gap:6px;padding:4px 0"><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T1" style="accent-color:var(--blue);margin:0">Studio/T1</label><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T2" style="accent-color:var(--blue);margin:0">T2</label><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T3" style="accent-color:var(--blue);margin:0">T3</label><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T4" style="accent-color:var(--blue);margin:0">T4</label><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T5" style="accent-color:var(--blue);margin:0">T5</label><label style="display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;font-size:13px;user-select:none"><input type="checkbox" class="ea-typo-cb" value="T6" style="accent-color:var(--blue);margin:0">T6</label></div><span class="hint" style="display:block;margin-top:2px">Aucune coche = toutes les typologies</span></div><div class="fld" id="ea-anneewrap"><label>Année de construction min</label><input id="ea-annee" type="number" min="1900" max="2030" placeholder="ex. 2020, 2025..."><span class="hint" style="display:block;margin-top:4px">Vrai filtre SeLoger : ne garde que les biens construits &ge; cette année</span></div></div>
-<button id="ea-run" class="btn bp" style="width:100%;margin-top:8px">Lancer l'étude</button>
+<div id="ea-cost-hint" class="hint" style="text-align:center;margin:10px 0 6px;color:var(--blue);font-weight:600"></div>
+<button id="ea-run" class="btn bp" style="width:100%;margin-top:4px">Lancer l'étude</button>
 <p class="hint" style="margin:14px 0 0">&#128274; Le lancement est protégé par mot de passe (consommation de crédit). La consultation du site reste libre.</p>
 </div>
 <div id="ea-result" style="margin-top:24px"></div>
@@ -622,6 +623,16 @@ if(animate&&window.gsap){gsap.from("#ea-fichedoc .eafh, #ea-fichedoc .ea-sec",{y
 setTimeout(function(){[].forEach.call(document.querySelectorAll("#ea-fichedoc .ea-barfill"),function(b){b.style.width=b.getAttribute("data-w")+"%"})},animate?380:30);
 z.scrollIntoView({behavior:"smooth",block:"start"})}
 /* PRE-FICHE : liste brute de toutes les annonces sourcees (verification) */
+/* une annonce appartient-elle au quartier q (meme logique que matchesQuartier serveur) */
+function eaNorm(s){return String(s==null?"":s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g," ").trim()}
+function eaAnnInQuartier(a,q){var qn=eaNorm(q);if(!qn)return false;return eaNorm((a.quartier||"")+" "+(a.titre||"")+" "+(a.url||"")).indexOf(qn)>-1}
+/* bloc de synthese pour UN quartier : KPI meuble/non meuble + tableau typologie */
+function eaQuartierBlock(name,rows){var v=eaHistMeubleVals(rows);
+var order=["T1","T2","T3","T4","T5","T6","autre"],g={};rows.forEach(function(a){var t=a.typologie||"autre";(g[t]=g[t]||[]).push(a)});
+var trs="";order.forEach(function(t){if(!g[t])return;var tv=eaHistMeubleVals(g[t]);
+trs+='<tr><td><b>'+(t=="autre"?"Autre":t)+'</b></td><td>'+g[t].length+'</td><td>'+(tv.nm!=null?e1(tv.nm)+(tv.nmEst?'*':''):'—')+'</td><td>'+(tv.m!=null?e1(tv.m)+(tv.mEst?'*':''):'—')+'</td></tr>'});
+function kc(lbl,val,est,ac){return '<div style="flex:1;min-width:130px;background:'+(ac?"#eef4fb":"#f1f3f6")+';border-radius:10px;padding:8px 12px"><div style="font-size:10px;font-weight:700;color:'+(ac?"#185FA5":"var(--soft)")+'">'+lbl+'</div><div style="font-size:20px;font-weight:800;color:'+(ac?"#185FA5":"var(--deep)")+'">'+(val!=null?e1(val)+(est?'*':''):'—')+' <span style="font-size:11px;font-weight:500;color:var(--soft)">&euro;/m&sup2;</span></div></div>'}
+return '<div class="card" style="padding:14px 18px;margin:0 18px 12px"><h3 style="font-size:15px;margin:0 0 8px">'+eaEsc(name)+' <span style="font-weight:400;color:var(--soft);font-size:12px">&middot; '+rows.length+' annonce'+(rows.length>1?'s':'')+'</span></h3><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">'+kc("Non meublé (CC)",v.nm,v.nmEst,false)+kc("Meublé (CC)",v.m,v.mEst,true)+'</div><div style="overflow-x:auto"><table><thead><tr><th>Typo</th><th>Annonces</th><th>&euro;/m&sup2; non meublé</th><th>&euro;/m&sup2; meublé</th></tr></thead><tbody>'+trs+'</tbody></table></div></div>'}
 function eaPrefiche(j){
 var nb=j.annoncesRetenues!=null?j.annoncesRetenues:((j.annonces&&j.annonces.length)||0);
 if(!nb||!j.annonces||!j.annonces.length){return '<div class="card" style="padding:28px"><div style="font-size:30px">&#128269;</div><h3 style="margin:8px 0 4px">Aucune annonce trouvée</h3><p style="color:var(--soft)">'+eaEsc(j.message||"Aucune annonce ne correspond à ces critères. Élargissez les filtres ou augmentez le nombre max.")+'</p></div>'}
@@ -660,7 +671,13 @@ var foot='<div style="padding:6px 24px 18px;color:var(--soft);font-size:13px">So
 var gv=(!vente)?eaMeubleVals(j,"GLOBAL"):null;
 function kcard(lbl,val,est,accent){return '<div style="flex:1;min-width:150px;background:'+(accent?"#eef4fb":"#f1f3f6")+';border-radius:12px;padding:12px 16px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:'+(accent?"#185FA5":"var(--soft)")+'">'+lbl+'</div><div style="font-size:25px;font-weight:800;color:'+(accent?"#185FA5":"var(--deep)")+';margin-top:2px">'+(val!=null?e1(val)+(est?"*":""):"—")+' <span style="font-size:13px;font-weight:500;color:var(--soft)">&euro;/m&sup2;</span></div></div>'}
 var kpi=(gv&&(gv.nm!=null||gv.m!=null))?'<div style="display:flex;gap:14px;flex-wrap:wrap;padding:12px 24px 2px">'+kcard("Loyer/m² non meublé (CC)",gv.nm,gv.nmEst,false)+kcard("Loyer/m² meublé (CC)",gv.m,gv.mEst,true)+'</div>':'';
-return '<div class="card" id="ea-prefiche">'+head+kpi+communeLine+chargesLine+dpeLine+filtreLine+table+foot+'</div>'}
+/* resultats SEPARES par quartier (si plusieurs quartiers choisis) : synthese
+   ville globale (KPI en haut) + un bloc par quartier. */
+var qblocks="";
+if(!vente&&j.quartiers&&j.quartiers.length){
+var parts=j.quartiers.map(function(q){var sub=(j.annonces||[]).filter(function(a){return eaAnnInQuartier(a,q)});return sub.length?eaQuartierBlock(q,sub):'<div class="card" style="padding:12px 18px;margin:0 18px 12px;color:var(--soft)">'+eaEsc(q)+' &middot; aucune annonce trouvée dans ce quartier</div>'}).join("");
+qblocks='<div style="padding:6px 0 2px"><h3 style="font-size:14px;margin:8px 24px 8px;color:var(--soft)">Détail par quartier ('+j.quartiers.length+')</h3>'+parts+'</div>';}
+return '<div class="card" id="ea-prefiche">'+head+kpi+communeLine+chargesLine+dpeLine+qblocks+filtreLine+table+foot+'</div>'}
 /* badge Meuble/Non meuble + equivalent converti dans l'autre regime.
    Conversion sur le loyer HC si connu, sinon sur le CC (precise). Au survol
    (title) : le detail ; en mention secondaire : la valeur convertie. */
@@ -871,7 +888,7 @@ eaCollect(all,seen,res.annonces);
 function runFinalize(){
 eaResult.innerHTML=eaProgress(prefix+"Synthèse location… ("+all.length+" annonces)",credits);
 return eaApi({phase:"finalize",ville:res.ville,quartier:body.quartier,transaction:body.transaction,annonces:all.slice(0,EA_MAX),credits:credits,etudeId:body.etudeId})
-.then(function(fin){if(res.note&&!fin.note)fin.note=res.note;fin.recoltees=recoltees;fin.horsCommune=horsCommune;fin.etudeId=body.etudeId;return fin})}
+.then(function(fin){if(res.note&&!fin.note)fin.note=res.note;fin.recoltees=recoltees;fin.horsCommune=horsCommune;fin.etudeId=body.etudeId;if(res.quartier)fin.quartier=res.quartier;if(res.quartiers)fin.quartiers=res.quartiers;return fin})}
 /* ETUDE DE BASE = liste seule (loyers CC, meuble, quartier, prix/m2 CC). Le
    scrape DETAIL (charges/HC/DPE) est OPTIONNEL, lance ensuite par un bouton
    dedie (eaRunDetail) -> etude de base ~3-4 credits. */
@@ -879,7 +896,7 @@ function finalize(){return runFinalize()}
 function next(pg){
 if(pg>(res.pagesPrevues||1)||all.length>=EA_MAX)return finalize();
 eaResult.innerHTML=eaProgress(prefix+"Annonces SeLoger : page "+pg+"/"+res.pagesPrevues+"… ("+all.length+" récupérées)",credits);
-return eaApi({phase:"page",page:pg,code:res.code,ville:res.ville,codePostal:res.codePostal,transaction:body.transaction,typologies:body.typologies,anneeMin:body.anneeMin,quartier:body.quartier})
+return eaApi({phase:"page",page:pg,code:res.code,ville:res.ville,codePostal:res.codePostal,transaction:body.transaction,typologies:body.typologies,anneeMin:body.anneeMin,quartiers:body.quartiers})
 .then(function(r){credits+=(r.creditsEstimes||1);recoltees+=r.recoltees||0;horsCommune+=r.horsCommune||0;
 var fresh=eaCollect(all,seen,r.annonces);
 if(!fresh){console.warn("etude-auto: page "+pg+" -> aucune annonce nouvelle (doublons) : arrêt de la pagination");return finalize()}
@@ -953,8 +970,8 @@ if(eaRun)eaRun.onclick=function(){
 var ville=document.getElementById("ea-ville").value.trim();if(!ville){toast("Ville obligatoire");return}
 var tr=document.getElementById("ea-transaction").value;
 var etudeId=eaEtudeId(); /* identifiant de LOT, partage par toutes les annonces de ce lancement */
-var quartier=(document.getElementById("ea-quartier")||{}).value;quartier=(quartier||"").trim();
-var body={phase:"start",ville:ville,transaction:tr,etudeId:etudeId};if(quartier)body.quartier=quartier;
+var quartiers=eaQuartiers.slice(); /* choix multiple ; location uniquement */
+var body={phase:"start",ville:ville,transaction:tr,etudeId:etudeId};if(quartiers.length)body.quartiers=quartiers;
 var typos=[].map.call(document.querySelectorAll(".ea-typo-cb:checked"),function(c){return c.value});
 /* tableau "typologies" lu par la fonction ; vide ou 6/6 = toutes typologies */
 if(typos.length&&typos.length<6)body.typologies=typos;
@@ -965,9 +982,9 @@ var p;
 if(tr=="complete"){
 /* sequentiel : location PUIS achat neuf (~5 + ~1+N credits) */
 var bLoc={phase:"start",ville:ville,transaction:"location",etudeId:etudeId};
-if(body.typologies)bLoc.typologies=body.typologies;if(body.anneeMin!=null)bLoc.anneeMin=body.anneeMin;if(quartier)bLoc.quartier=quartier;
-var bNeuf={phase:"start",ville:ville,transaction:"vente_neuf",etudeId:etudeId};
-if(body.typologies)bNeuf.typologies=body.typologies;if(quartier)bNeuf.quartier=quartier;
+if(body.typologies)bLoc.typologies=body.typologies;if(body.anneeMin!=null)bLoc.anneeMin=body.anneeMin;if(quartiers.length)bLoc.quartiers=quartiers;
+var bNeuf={phase:"start",ville:ville,transaction:"vente_neuf",etudeId:etudeId}; /* neuf : toute la ville (pas de filtre quartier) */
+if(body.typologies)bNeuf.typologies=body.typologies;
 p=eaLocRun(bLoc,"Étape 1/2 · Location : ").then(function(loc){
 return eaNeufRun(bNeuf,"Étape 2/2 · Achat neuf : ").then(function(nf){eaShowResultComplete(loc,nf)})})
 }else if(tr=="vente_neuf"){p=eaNeufRun(body,"").then(function(r){eaShowResult(r)})}
@@ -979,7 +996,7 @@ var eaV=document.getElementById("ea-ville"),eaVsg=document.getElementById("ea-vs
 function eaVrender(){if(!eaVM.length){eaVsg.classList.remove("show");eaVsg.innerHTML="";return}
 eaVsg.innerHTML=eaVM.map(function(c,i){return '<div class="sug'+(i==eaVai?" active":"")+'" data-i="'+i+'"><span class="tag ville">ville</span><span>'+eaEsc(c.nom)+(c.cp?' <span style="color:var(--soft)">('+eaEsc(c.cp)+')</span>':'')+'</span></div>'}).join("");
 eaVsg.classList.add("show");[].forEach.call(eaVsg.querySelectorAll(".sug"),function(el){el.onclick=function(){eaVpick(eaVM[+el.dataset.i])}})}
-function eaVpick(c){eaV.value=c.nom;eaVM=[];eaVrender();eaLoadQuartiers(c.nom)}
+function eaVpick(c){eaV.value=c.nom;eaVM=[];eaVrender();if(c.nom.toLowerCase()!=eaQLastVille){eaQLastVille=c.nom.toLowerCase();eaResetQuartiers()}eaLoadQuartiers(c.nom)}
 /* peuple la liste deroulante des quartiers REELS de la ville. Source principale :
    autocomplete SeLoger (Meta.Quartiers, CORS ouvert) ; complete par les quartiers
    deja connus en base (etudes precedentes). Les noms SeLoger correspondent aux
@@ -1013,7 +1030,21 @@ fetch("https://geo.api.gouv.fr/communes?nom="+encodeURIComponent(t)+"&fields=nom
 .then(function(arr){if(eaV.value.trim()!=t)return;
 eaVM=(arr||[]).map(function(c){return {nom:c.nom,cp:(c.codesPostaux&&c.codesPostaux[0])||""}});eaVai=-1;eaVrender()})
 .catch(function(){})},250)}
-if(eaV){eaV.oninput=eaVshow;eaV.onfocus=eaVshow;eaV.onchange=function(){eaLoadQuartiers(eaV.value.trim())};
+/* ===== sélection MULTIPLE de quartiers (puces) + coût estimé ===== */
+var eaQuartiers=[],eaQLastVille="";
+function eaRenderChips(){var c=document.getElementById("ea-qchips");if(!c)return;
+c.innerHTML=eaQuartiers.map(function(q,i){return '<span class="ea-pill" style="background:#eef4fb;color:#185FA5;border:1px solid #c9ddf2;display:inline-flex;align-items:center;gap:6px">'+eaEsc(q)+' <span data-i="'+i+'" style="cursor:pointer;font-weight:800">×</span></span>'}).join("");
+[].forEach.call(c.querySelectorAll("span[data-i]"),function(x){x.onclick=function(){eaQuartiers.splice(+x.getAttribute("data-i"),1);eaRenderChips();eaCostHint()}})}
+function eaAddQuartier(q){q=(q||"").trim();if(!q)return;var k=q.toLowerCase();if(eaQuartiers.some(function(x){return x.toLowerCase()==k}))return;eaQuartiers.push(q);eaRenderChips();eaCostHint()}
+function eaResetQuartiers(){eaQuartiers=[];eaRenderChips();eaCostHint()}
+function eaCostHint(){var el=document.getElementById("ea-cost-hint");if(!el)return;var tr=(document.getElementById("ea-transaction")||{}).value;
+var base=tr=="vente_neuf"?"≈ 1 + N crédits (programmes neufs)":(tr=="complete"?"≈ 5-9 crédits (liste + achat neuf)":"≈ 3-5 crédits (étude liste)");
+var q=eaQuartiers.length;
+el.textContent=base+(q&&tr!="vente_neuf"?" · "+q+" quartier"+(q>1?"s":"")+" (1 scrape ville réparti — le coût n'augmente pas par quartier)":"")+" · charges + DPE en option ensuite";}
+var eaQin=document.getElementById("ea-quartier");
+if(eaQin){eaQin.onkeydown=function(e){if(e.key=="Enter"){e.preventDefault();eaAddQuartier(eaQin.value);eaQin.value=""}};
+eaQin.onchange=function(){if(eaQin.value){eaAddQuartier(eaQin.value);eaQin.value=""}}}
+if(eaV){eaV.oninput=eaVshow;eaV.onfocus=eaVshow;eaV.onchange=function(){var v=eaV.value.trim();if(v.toLowerCase()!=eaQLastVille){eaQLastVille=v.toLowerCase();eaResetQuartiers()}eaLoadQuartiers(v)};
 eaV.onkeydown=function(e){if(!eaVM.length)return;
 if(e.key=="ArrowDown"){e.preventDefault();eaVai=(eaVai+1)%eaVM.length;eaVrender()}
 else if(e.key=="ArrowUp"){e.preventDefault();eaVai=(eaVai-1+eaVM.length)%eaVM.length;eaVrender()}
@@ -1026,7 +1057,8 @@ var eaTr=document.getElementById("ea-transaction");
 function eaTrToggle(){var neuf=eaTr.value=="vente_neuf";
 var aw=document.getElementById("ea-anneewrap");
 if(aw)aw.style.display=neuf?"none":"";}
-if(eaTr){eaTr.onchange=eaTrToggle;eaTrToggle()}
+if(eaTr){eaTr.onchange=function(){eaTrToggle();eaCostHint()};eaTrToggle()}
+eaCostHint();
 
 
 /* ====== PAGE RESULTATS / HISTORIQUE (reouverture 0 credit) ====== */

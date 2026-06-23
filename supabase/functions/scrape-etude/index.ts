@@ -31,7 +31,8 @@ import {
   buildListUrl,
   cutProximity,
   matchesCommune,
-  matchesQuartier,
+  matchesAnyQuartier,
+  parseQuartiers,
   detailResult,
   extractCityCode,
   isColocation,
@@ -83,6 +84,7 @@ interface ReqBody {
   phase?: "start" | "page" | "neuf-liste" | "neuf-detail" | "detail" | "loc-detail" | "finalize";
   ville?: string;
   quartier?: string;
+  quartiers?: string[]; // choix multiple de quartiers (location) ; [] = toute la ville
   transaction?: Transaction | "vente_neuf";
   typologies?: string[]; // tableau envoye par le front (["T2"]) ; [] = toutes
   typologie?: string; // compat retro (CSV) — parseTypologies accepte les deux
@@ -353,7 +355,9 @@ function makeFilters(typoFilter: string[] | null, anneeMin: number | null, trans
 // ============================================================================
 async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   const ville = (body.ville || "").trim();
-  const quartier = (body.quartier || "").trim();
+  const quartiers = parseQuartiers(body.quartiers ?? body.quartier); // 0, 1 ou N quartiers
+  const quartierLabel = quartiers.length ? quartiers.join(", ") : null;
+  const quartier = quartiers.length === 1 ? quartiers[0] : ""; // fallback per-annonce (1 seul)
   const transaction: Transaction = body.transaction === "vente" ? "vente" : "location";
   const typoFilter = parseTypologies(body.typologies ?? body.typologie);
   const anneeMin = num(body.anneeMin);
@@ -411,11 +415,12 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   rows = rows.filter((r) => matchesCommune(r.titre, r.url, communeRef));
   const horsCommune = recoltees - rows.length;
   if (horsCommune) console.log(`[start] filtre commune : ${rows.length}/${recoltees} retenues (${horsCommune} hors ${city.nom})`);
-  // Filtre QUARTIER optionnel : ne garde que les annonces du quartier demande.
-  if (quartier) {
+  // Filtre QUARTIER(S) optionnel : ne garde que les annonces d'au moins un des
+  // quartiers demandes (1 scrape ville reparti -> le cout n'augmente pas par quartier).
+  if (quartiers.length) {
     const av = rows.length;
-    rows = rows.filter((r) => matchesQuartier(r.titre, r.url, quartier));
-    console.log(`[start] filtre quartier "${quartier}" : ${rows.length}/${av}`);
+    rows = rows.filter((r) => matchesAnyQuartier(r.titre, r.url, quartiers));
+    console.log(`[start] filtre quartiers [${quartiers.join(", ")}] : ${rows.length}/${av}`);
   }
   rows = applyFilters(rows, !anneeServerSide).slice(0, MAX_ITEMS);
   const partielles = rows.map(toAnnonce);
@@ -428,7 +433,7 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   if (needMore) {
     return json({
       done: false, creditsEstimes: credits, scrapedAt, fcCache,
-      ville: city.nom, quartier: quartier || null, codePostal: city.codePostal,
+      ville: city.nom, quartier: quartierLabel, quartiers, codePostal: city.codePostal,
       transaction, code, searchUrl, filtres, pagesPrevues,
       annonces: partielles, note, recoltees, horsCommune,
     });
@@ -439,7 +444,7 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   if (partielles.length === 0) {
     return json({
       done: true, creditsEstimes: credits, scrapedAt, fcCache,
-      ville: city.nom, quartier: quartier || null, transaction, searchUrl, filtres,
+      ville: city.nom, quartier: quartierLabel, quartiers, transaction, searchUrl, filtres,
       annoncesRetenues: 0, annonces: [], parTypologie: {}, global: null, note,
       recoltees, horsCommune,
       message: horsCommune > 0
@@ -451,7 +456,7 @@ async function handleStart(body: ReqBody, env: Env): Promise<Response> {
   const s = synthesize(partielles, transaction);
   return json({
     done: true, creditsEstimes: credits, scrapedAt, fcCache,
-    ville: city.nom, quartier: quartier || null, transaction, searchUrl, filtres,
+    ville: city.nom, quartier: quartierLabel, quartiers, transaction, searchUrl, filtres,
     annoncesRetenues: partielles.length, annonces: partielles, note,
     recoltees, horsCommune,
     parTypologie: s.parTypologie, global: s.global,
@@ -467,7 +472,8 @@ async function handlePage(body: ReqBody, env: Env): Promise<Response> {
   const code = String(body.code || "");
   const page = Math.min(Math.max(Math.round(num(body.page) ?? 2), 2), MAX_PAGES);
   const ville = (body.ville || "").trim();
-  const quartier = (body.quartier || "").trim();
+  const quartiers = parseQuartiers(body.quartiers ?? body.quartier);
+  const quartier = quartiers.length === 1 ? quartiers[0] : "";
   const transaction: Transaction = body.transaction === "vente" ? "vente" : "location";
   const typoFilter = parseTypologies(body.typologies ?? body.typologie);
   const anneeMin = num(body.anneeMin);
@@ -487,7 +493,7 @@ async function handlePage(body: ReqBody, env: Env): Promise<Response> {
   const recoltees = rows.length;
   rows = rows.filter((r) => matchesCommune(r.titre, r.url, communeRef));
   const horsCommune = recoltees - rows.length;
-  if (quartier) rows = rows.filter((r) => matchesQuartier(r.titre, r.url, quartier)); // filtre quartier optionnel
+  if (quartiers.length) rows = rows.filter((r) => matchesAnyQuartier(r.titre, r.url, quartiers)); // filtre quartier(s) optionnel
   // annee deja filtree cote serveur (classified) -> applyAnnee=false
   rows = makeFilters(typoFilter, anneeMin, transaction)(rows, false);
   if (horsCommune) console.log(`[page ${page}] filtre commune : ${horsCommune} hors ${ville} ecartees`);

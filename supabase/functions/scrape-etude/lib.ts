@@ -526,6 +526,20 @@ export function matchesQuartier(titre: string | null | undefined, url: string | 
   return hay.includes(q);
 }
 
+// Choix MULTIPLE de quartiers : garde l'annonce si elle correspond a AU MOINS UN
+// des quartiers demandes. Liste vide -> toute la ville (true).
+export function matchesAnyQuartier(titre: string | null | undefined, url: string | null | undefined, quartiers: string[] | null | undefined): boolean {
+  if (!quartiers || !quartiers.length) return true;
+  return quartiers.some((q) => matchesQuartier(titre, url, q));
+}
+
+// Parse une liste de quartiers (tableau du front, ou CSV) -> noms nettoyes.
+export function parseQuartiers(input: string[] | string | null | undefined): string[] {
+  if (!input) return [];
+  const arr = Array.isArray(input) ? input : String(input).split(/\s*[;|]\s*/);
+  return arr.map((q) => String(q || "").trim()).filter(Boolean);
+}
+
 // Nettoie une URL capturee depuis le markdown : un lien markdown peut s'ecrire
 // `(url "titre")` -> le groupe capture inclut alors ` "titre"`. Une vraie URL ne
 // contient jamais d'espace brut, donc on coupe au 1er espace (retire le titre et

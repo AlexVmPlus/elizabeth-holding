@@ -34,6 +34,8 @@ import {
   parseChargesDetail,
   parseQuartierFromUrl,
   matchesQuartier,
+  matchesAnyQuartier,
+  parseQuartiers,
   parseDpe,
   parseGes,
   synthesizeCharges,
@@ -683,4 +685,16 @@ Deno.test("matchesQuartier : filtre location par quartier (slug URL ou texte)", 
   assertEquals(matchesQuartier("Appartement Bords de Seine", "https://x/y/1.htm", "Bords de Seine"), true); // via titre
   assertEquals(matchesQuartier("T2", u, ""), true); // pas de quartier -> tout
   assertEquals(matchesQuartier("T2", u, null), true);
+});
+
+Deno.test("matchesAnyQuartier / parseQuartiers : choix multiple", () => {
+  const u1 = "https://www.seloger.com/annonces/locations/appartement/argenteuil-95/centre-ville-basilique/1.htm";
+  const u2 = "https://www.seloger.com/annonces/locations/appartement/argenteuil-95/coteaux-morinval/2.htm";
+  const qs = parseQuartiers(["Centre Ville-Basilique", "Coteaux-Morinval"]);
+  assertEquals(qs.length, 2);
+  assertEquals(matchesAnyQuartier("T2", u1, qs), true);
+  assertEquals(matchesAnyQuartier("T3", u2, qs), true);
+  assertEquals(matchesAnyQuartier("T2", "https://x/argenteuil-95/orgemont/3.htm", qs), false);
+  assertEquals(matchesAnyQuartier("T2", u1, []), true); // aucun -> toute la ville
+  assertEquals(parseQuartiers("A | B").length, 2);
 });
